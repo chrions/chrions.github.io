@@ -4,8 +4,9 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="k8s集群初始化, Blog">
-    <meta name="description" content="手把手搭建k8s集群">
+    <meta name="keywords" content="网络四层七层协议, Blog">
+    <meta name="description" content="在工作中经常听到别人谈起”四层负载均衡”，”七层负载均衡”，什么”二层转发”，”三层路由”，具体是什么含义，看网上的讲解总是模凌两可的，这篇文章从 HTTP 应用的角度，帮你把这些模糊的概念弄清楚。
+###TCP&amp;#x2F;IP 网络分层模">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="renderer" content="webkit|ie-stand|ie-comp">
@@ -19,7 +20,7 @@
 
     
 
-    <title>k8s集群初始化 | Blog</title>
+    <title>网络四层七层协议 | Blog</title>
     <link rel="icon" type="image/png" href="/favicon.png">
 
     <link rel="stylesheet" type="text/css" href="/libs/awesome/css/all.min.css">
@@ -265,12 +266,12 @@
 
 
 
-<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/20.jpg')">
+<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/8.jpg')">
     <div class="container" style="right: 0px;left: 0px;">
         <div class="row">
             <div class="col s12 m12 l12">
                 <div class="brand">
-                    <h1 class="description center-align post-title">k8s集群初始化</h1>
+                    <h1 class="description center-align post-title">网络四层七层协议</h1>
                 </div>
             </div>
         </div>
@@ -386,8 +387,8 @@
                     
                     <div class="article-tag">
                         
-                            <a href="/tags/k8s/">
-                                <span class="chip bg-color">k8s</span>
+                            <a href="/tags/%E7%BD%91%E7%BB%9C/">
+                                <span class="chip bg-color">网络</span>
                             </a>
                         
                     </div>
@@ -411,7 +412,7 @@
                 
                 <div class="post-date info-break-policy">
                     <i class="far fa-calendar-minus fa-fw"></i>发布日期:&nbsp;&nbsp;
-                    2022-06-20
+                    2022-06-21
                 </div>
                 
 
@@ -420,7 +421,7 @@
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    764
+                    1.6k
                 </div>
                 
 
@@ -445,132 +446,44 @@
 
         <div class="card-content article-card-content">
             <div id="articleContent">
-                <p>linux 下初始化k8s集群</p>
-<span id="more"></span>
-
-<h4 id="关闭swap"><a href="#关闭swap" class="headerlink" title="关闭swap"></a>关闭swap</h4><pre class="line-numbers language-none"><code class="language-none">临时关闭swap分区
-
-sudo swapoff -a
-
-永久关闭swap分区
-
-sudo sed -ri &#39;s&#x2F;.*swap.*&#x2F;#&amp;&#x2F;&#39; &#x2F;etc&#x2F;fstab<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h4 id="关闭防火墙"><a href="#关闭防火墙" class="headerlink" title="关闭防火墙"></a>关闭防火墙</h4><pre class="line-numbers language-none"><code class="language-none">sudo ufw disable<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
-<h4 id="增加镜像源"><a href="#增加镜像源" class="headerlink" title="增加镜像源"></a>增加镜像源</h4><pre class="line-numbers language-none"><code class="language-none">sudo vim &#x2F;etc&#x2F;apt&#x2F;sources.list
-
-增加一行
-
-deb https:&#x2F;&#x2F;mirrors.aliyun.com&#x2F;kubernetes&#x2F;apt&#x2F; kubernetes-xenial main
-
-增加gpg key
-
-curl https:&#x2F;&#x2F;mirrors.aliyun.com&#x2F;kubernetes&#x2F;apt&#x2F;doc&#x2F;apt-key.gpg |sudo apt-key add -
-
-更新仓库
-
-sudo apt-get update<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h4 id="安装kubelet-kubeadm-kubectl并锁定版本"><a href="#安装kubelet-kubeadm-kubectl并锁定版本" class="headerlink" title="安装kubelet kubeadm kubectl并锁定版本"></a>安装kubelet kubeadm kubectl并锁定版本</h4><pre class="line-numbers language-none"><code class="language-none">sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span></span></code></pre>
-
-<h4 id="初始节点"><a href="#初始节点" class="headerlink" title="初始节点"></a>初始节点</h4><h5 id="修改cgroup驱动"><a href="#修改cgroup驱动" class="headerlink" title="修改cgroup驱动"></a>修改cgroup驱动</h5><pre class="line-numbers language-none"><code class="language-none">确保cgroups驱动一致
-
-sudo vim &#x2F;etc&#x2F;docker&#x2F;daemon.json
-
-&#123;&quot;exec-opts&quot;:[&quot;native.cgroupdriver&#x3D;systemd&quot;]&#125;
-
-service docker restart<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h4 id="拉取系统镜像"><a href="#拉取系统镜像" class="headerlink" title="拉取系统镜像"></a>拉取系统镜像</h4><pre class="line-numbers language-none"><code class="language-none">kubeadm config images pull --image-repository registry.aliyuncs.com&#x2F;google_containers<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
-<h4 id="初始化主节点"><a href="#初始化主节点" class="headerlink" title="初始化主节点"></a>初始化主节点</h4><pre class="line-numbers language-none"><code class="language-none">集群主节点初始化-提前跟运维要好ip网段
-sudo kubeadm init --image-repository registry.aliyuncs.com&#x2F;google_containers --node-name 192.168.6.65 --pod-network-cidr&#x3D;172.30.0.0&#x2F;16
-
-
-输出的kubeadm join命令需要保存下来<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h6 id="在主节点增加flannel插件"><a href="#在主节点增加flannel插件" class="headerlink" title="在主节点增加flannel插件"></a>在主节点增加flannel插件</h6><ul>
-<li><p>如果前期没指定pod cidr，要修改的话可以这么做</p>
-<pre class="line-numbers language-none"><code class="language-none">增加flannel插件的网络配置 上边制定了可以不用再重复指定
-vim &#x2F;etc&#x2F;kubernetes&#x2F;manifests&#x2F;kube-controller-manager.yaml
-- --allocate-node-cidrs&#x3D;true
-- --cluster-cidr&#x3D;172.30.0.0&#x2F;24
-重启 kubelet
-systemctl restart  kubelet<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-</li>
-<li><p>解决flannel插件配置错误问题</p>
-<pre class="line-numbers language-none"><code class="language-none">http:&#x2F;&#x2F;www.hyhblog.cn&#x2F;2021&#x2F;02&#x2F;21&#x2F;k8s-flannel-pod-cidr-not-assigned&#x2F;
-kubectl patch node &lt;NODE_NAME&gt; -p &#39;&#123;&quot;spec&quot;:&#123;&quot;podCIDR&quot;:&quot;&lt;SUBNET&gt;&quot;&#125;&#125;&#39;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span></span></code></pre></li>
-</ul>
-<h5 id="下载flannel的配置"><a href="#下载flannel的配置" class="headerlink" title="下载flannel的配置"></a>下载flannel的配置</h5><pre class="line-numbers language-none"><code class="language-none">https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;flannel-io&#x2F;flannel&#x2F;master&#x2F;Documentation&#x2F;kube-flannel.yml
-
-修改network部分，改为pod-network-cidr相同配置
-启动flannel插件
-kubectl apply -f kube-flannel.yml<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h5 id="确认主节点是否就绪"><a href="#确认主节点是否就绪" class="headerlink" title="确认主节点是否就绪"></a>确认主节点是否就绪</h5><pre class="line-numbers language-none"><code class="language-none">查看coreDNS是否已经正常启动
-kubectl get pods -A<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span></span></code></pre>
-
-<h4 id="worker节点加入集群"><a href="#worker节点加入集群" class="headerlink" title="worker节点加入集群"></a>worker节点加入集群</h4><pre class="line-numbers language-none"><code class="language-none">使用初始化主节点的时候给的token来加入集群
-
-kubeadm join 192.168.6.65:6443 --token h3b71w.amp0bm2byrmq76jr --discovery-token-ca-cert-hash sha256:d231e4352f72222847f248782c80f06d4ed0cd34283b688a98dc7ee66c7ba85b --node-name 192.168.6.66
-
-在主节点为node增加patch&#x2F;否则可能会造成flannel插件一直没法启动
-kubectl patch node 192.168.6.66  -p &#39;&#123;&quot;spec&quot;:&#123;&quot;podCIDR&quot;:&quot;172.30.0.0&#x2F;16&quot;&#125;&#125;&#39;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
+                <p>在工作中经常听到别人谈起”四层负载均衡”，”七层负载均衡”，什么”二层转发”，”三层路由”，具体是什么含义，看网上的讲解总是模凌两可的，这篇文章从 HTTP 应用的角度，帮你把这些模糊的概念弄清楚。</p>
+<p>###TCP&#x2F;IP 网络分层模型<br>TCP&#x2F;IP 当初的设计者真的是非常聪明，创造性地提出了“分层”的概念，把复杂的网络通信划分出多个层次，再给每一个层次分配不同的职责，层次内只专心做自己的事情就好，用“分而治之”的思想把一个“大麻烦”拆分成了数个“小麻烦”，从而解决了网络通信的难题。</p>
+<p><img src="https://raw.githubusercontent.com/chrions/image/master/img.png" alt="TCP/IP网络分层模型"></p>
+<p>TCP&#x2F;IP 协议总共有四层，每一层需要下层的支撑，同时又支撑着上层，它的顺序从下往上数依次是：</p>
+<p><strong>第一层：链接层，</strong> 负责在以太网、WiFi 这样的底层网络上 <strong>发送原始数据包</strong>，工作在网卡这个层次，使用 MAC 地址来标记网络上的设备，所以有时候也叫 MAC 层。</p>
+<p><strong>第二层：“网际层”或者“网络互连层”（internet layer）</strong>，IP协议在这一层。因为 IP 协议定义了“IP 地址”的概念，所以就可以在“链接层”的基础上，用 IP 地址取代 MAC 地址，把许许多多的局域网、广域网连接成一个虚拟的巨大网络，在这个网络里找设备时只要把 IP 地址再“翻译”成 MAC 地址就可以了。</p>
+<p><strong>第三层：“传输层”（transport layer）</strong>，这个层次协议的职责是保证数据在 IP 地址标记的两点之间“可靠”地传输，<strong>是 TCP 协议工作的层次</strong>，同时UDP也在这一层；TCP 是一个有状态的协议，需要先与对方建立连接然后才能发送数据，而且保证数据不丢失不重复。而 UDP 则比较简单，它无状态，不用事先建立连接就可以任意发送数据，但不保证数据一定会发到对方。两个协议的另一个重要区别在于数据的形式。TCP 的数据是连续的“字节流”，有先后顺序，而 UDP 则是分散的小数据包，是顺序发，乱序收。</p>
+<p><strong>第四层：应用层（application layer）</strong>，各种面向具体应用的协议。例如 Telnet、SSH、FTP、SMTP 等等，当然还有我们最熟悉的 HTTP&#x2F;HTTPS。</p>
+<p>不同层传输的结构是不一样的： MAC 层的传输单位是帧（frame），IP 层的传输单位是包（packet），TCP 层的传输单位是段（segment），HTTP 的传输单位则是消息或报文（message）。但这些名词并没有什么本质的区分，可以统称为数据包。</p>
+<h3 id="OSI-网络分层模型"><a href="#OSI-网络分层模型" class="headerlink" title="OSI 网络分层模型"></a>OSI 网络分层模型</h3><p>看完 TCP&#x2F;IP 协议栈，只有四成协议，我们常说的七层又是什么？</p>
+<p>七层网络模型又叫： <strong>OSI</strong>，全称是“开放式系统互联通信参考模型”（Open System Interconnection Reference Model）。它的由来是因为TCP&#x2F;IP 发明于 1970 年代，当时除了它还有很多其他的网络协议，整个网络世界比较混乱。这个时候国际标准组织（ISO）注意到了这种现象，感觉“野路子”太多，就想要来个“大一统”。于是设计出了一个新的网络分层模型，想用这个新框架来统一既存的各种网络协议。</p>
+<p><img src="https://raw.githubusercontent.com/chrions/image/master/%E4%B8%83%E5%B1%82%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B.png" alt="OSI 网络分层模型"></p>
 <ul>
-<li><h6 id="重新生成token"><a href="#重新生成token" class="headerlink" title="重新生成token"></a>重新生成token</h6></li>
+<li>第一层：物理层，网络的物理形式，例如电缆、光纤、网卡、集线器等等；</li>
+<li>第二层：数据链路层，它基本相当于 TCP&#x2F;IP 的链接层；</li>
+<li>第三层：网络层，相当于 TCP&#x2F;IP 里的网际层；</li>
+<li>第四层：传输层，相当于 TCP&#x2F;IP 里的传输层；</li>
+<li>第五层：会话层，维护网络中的连接状态，即保持会话和同步；</li>
+<li>第六层：表示层，把数据转换为合适、可理解的语法和语义；</li>
+<li>第七层：应用层，面向具体的应用传输数据。</li>
 </ul>
-<pre class="line-numbers language-none"><code class="language-none">--ttl&#x3D;0 指示token永不过期
-kubeadm token create --print-join-command --ttl&#x3D;0<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span></span></code></pre>
-
-<h1 id="获取cluster-admin的token"><a href="#获取cluster-admin的token" class="headerlink" title="获取cluster-admin的token"></a>获取cluster-admin的token</h1><h5 id="创建文件sa-admin-yml"><a href="#创建文件sa-admin-yml" class="headerlink" title="创建文件sa-admin.yml"></a>创建文件sa-admin.yml</h5><pre class="line-numbers language-none"><code class="language-none">apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: honeycomb
-  namespace: kube-system
----
-apiVersion: rbac.authorization.k8s.io&#x2F;v1
-kind: ClusterRoleBinding
-metadata:
-  name: honeycomb-admin
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-  - kind: ServiceAccount
-    name: honeycomb
-    namespace: kube-system<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h5 id="应用文件"><a href="#应用文件" class="headerlink" title="应用文件"></a>应用文件</h5><pre class="line-numbers language-none"><code class="language-none">kubectl apply -f sa-admin.yml<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
-<h5 id="获得token"><a href="#获得token" class="headerlink" title="获得token"></a>获得token</h5><pre class="line-numbers language-none"><code class="language-none">kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep honeycomb | awk &#39;&#123;print $1&#125;&#39;)<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
-
-
-<h1 id="增加私有镜像源的密钥"><a href="#增加私有镜像源的密钥" class="headerlink" title="增加私有镜像源的密钥"></a>增加私有镜像源的密钥</h1><pre class="line-numbers language-none"><code class="language-none">docker login smart.hub.biomind.com.cn
-robot$kubernetes
-Biomind@1024
-
-cat ~&#x2F;.docker&#x2F;config.json
-cat ~&#x2F;.docker&#x2F;config.json|base64 -w 0
-# 复制 base64后的数据<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h5 id="编写secret-yml"><a href="#编写secret-yml" class="headerlink" title="编写secret.yml"></a>编写secret.yml</h5><pre class="line-numbers language-none"><code class="language-none">vim docker-login-secret.yml<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
-<pre class="line-numbers language-none"><code class="language-none">apiVersion: v1
-kind: Secret
-metadata:
-  name: smart.hub.biomind.com.cn
-type: kubernetes.io&#x2F;dockerconfigjson
-data:
-  .dockerconfigjson: 此处写上边的token<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<pre class="line-numbers language-none"><code class="language-none">kubectl apply -f docker-login-secret.yml<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre>
-
+<p>现在我们有了两个网络分层模型：TCP&#x2F;IP 和 OSI，一个四层一个七层，这两者该如何相互映射或是互相解释呢？</p>
+<p>好在 OSI 在设计之初就参考了 TCP&#x2F;IP 等多个协议，可以比较容易但不是很精确地实现对应关系。</p>
+<p><img src="https://raw.githubusercontent.com/chrions/image/master/image.png"></p>
+<ol>
+<li>第一层：物理层，TCP&#x2F;IP 里无对应；</li>
+<li>第二层：数据链路层，对应 TCP&#x2F;IP 的链接层；</li>
+<li>第三层：网络层，对应 TCP&#x2F;IP 的网际层；</li>
+<li>第四层：传输层，对应 TCP&#x2F;IP 的传输层；</li>
+<li>第五、六、七层：统一对应到 TCP&#x2F;IP 的应用层。</li>
+</ol>
+<p>OSI 的分层模型在四层以上分的太细，而 TCP&#x2F;IP 实际应用时的会话管理、编码转换、压缩等和具体应用经常联系的很紧密，很难分开。例如，<strong>HTTP 协议就同时包含了连接管理和数据格式定义。</strong></p>
+<p>所谓的”四层负载均衡”就是指工作在传输层上，基于 TCP&#x2F;IP 协议的特性，例如 IP 地址、端口号等实现对后端服务器的负载均衡。</p>
+<p>所谓的”七层负载均衡”就是指工作在应用层上，看到的是 HTTP 协议，解析 HTTP 报文里的 URI、主机名、资源类型等数据，再用适当的策略转发给后端服务器。</p>
+<p>所谓的”二层转发”指的就是设备工作在链路层，帧在经过交换机设备时，检查帧的头部信息，拿到目标mac地址，进行本地转发和广播</p>
+<p>所谓的”三层路由”就是设备工作在ip层，报文经过有路由功能的设备时，设备分析报文中的头部信息，拿到ip地址，根据网段范围，进行本地转发或选择下一个网关</p>
+<p>DNS，CDN协议也都在应用层</p>
+<p>有一个辨别四层和七层比较好的（但不是绝对的）小窍门，<strong>“两个凡是”</strong>：凡是由操作系统负责处理的就是四层或四层以下，否则，凡是需要由应用程序（也就是你自己写代码）负责处理的就是七层。</p>
 
                 
             </div>
@@ -597,7 +510,7 @@ data:
                     </i>
                 </span>
                 <span class="reprint-info">
-                    <a href="http://chiron.chiu-chiu.cn/2022/06/20/k8s-ji-qun-chu-shi-hua/">http://chiron.chiu-chiu.cn/2022/06/20/k8s-ji-qun-chu-shi-hua/</a>
+                    <a href="http://chiron.chiu-chiu.cn/2022/06/21/wang-luo-si-ceng-qi-ceng-xie-yi/">http://chiron.chiu-chiu.cn/2022/06/21/wang-luo-si-ceng-qi-ceng-xie-yi/</a>
                 </span>
             </div>
             <div class="reprint__notice">
@@ -635,8 +548,8 @@ data:
                     
                         <div class="article-tag">
                             
-                                <a href="/tags/k8s/">
-                                    <span class="chip bg-color">k8s</span>
+                                <a href="/tags/%E7%BD%91%E7%BB%9C/">
+                                    <span class="chip bg-color">网络</span>
                                 </a>
                             
                         </div>
@@ -810,9 +723,10 @@ data:
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
+                <i class="far fa-dot-circle"></i>&nbsp;本篇
+            </div>
             <div class="card">
                 <a href="/2022/06/21/wang-luo-si-ceng-qi-ceng-xie-yi/">
                     <div class="card-image">
@@ -830,9 +744,9 @@ data:
                         
                     </div>
                     <div class="publish-info">
-                        <span class="publish-date">
-                            <i class="far fa-clock fa-fw icon-date"></i>2022-06-21
-                        </span>
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2022-06-21
+                            </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
@@ -845,6 +759,7 @@ data:
                         </span>
                     </div>
                 </div>
+
                 
                 <div class="card-action article-tags">
                     
@@ -860,7 +775,7 @@ data:
         
         <div class="article col s12 m6" data-aos="fade-up">
             <div class="article-badge right-badge text-color">
-                本篇&nbsp;<i class="far fa-dot-circle"></i>
+                下一篇&nbsp;<i class="fas fa-chevron-right"></i>
             </div>
             <div class="card">
                 <a href="/2022/06/20/k8s-ji-qun-chu-shi-hua/">
@@ -894,7 +809,6 @@ data:
                         </span>
                     </div>
                 </div>
-
                 
                 <div class="card-action article-tags">
                     
