@@ -446,7 +446,7 @@
         <div class="card-content article-card-content">
             <div id="articleContent">
                 <p>最近把自己的有些项目上传到GitHub了，平时用GitHub来找可用库，项目CI&#x2F;CD都是用公司搭建的gitlab，偶然看到GitHub action也可以跑项目CI&#x2F;CD流程，以下是记录自己实现的过程</p>
-<p>我的流程是上传一个golang的项目，自动构建成docker镜像并推到自己的dockerhub上，首先登陆dockerhub，创建dockerhub的 <strong>Access Tokens</strong>，点击右上角用户名，选择<br>** Account Settings ** ，然后点击Security 选择New Access Token</p>
+<p>我的流程是上传一个golang的项目，自动构建成docker镜像并推到自己的dockerhub上，首先登陆dockerhub，创建dockerhub的 <strong>Access Tokens</strong>，点击右上角用户名，选择<br><strong>Account Settings</strong> ，然后点击Security 选择New Access Token</p>
 <p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220625180316.png"></p>
 <p>在把项目推到dockerhub时需要用用户名和token，但是这两个变量是不能暴露在外的，我们把它存到GitHub的Secrets里，以环境变量的方式注入</p>
 <p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220625181756.png"></p>
