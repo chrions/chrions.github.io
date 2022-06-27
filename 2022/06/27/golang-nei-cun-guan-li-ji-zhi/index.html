@@ -4,8 +4,8 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="实现k8s webshell, Blog">
-    <meta name="description" content="通过 client-go 提供的 remotecommand 包，实现从web端进入 kubernetes pod 的终端进行操作。">
+    <meta name="keywords" content="golang 内存管理机制之内存分配, Blog">
+    <meta name="description" content="golang 的内存分配器">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="renderer" content="webkit|ie-stand|ie-comp">
@@ -19,7 +19,7 @@
 
     
 
-    <title>实现k8s webshell | Blog</title>
+    <title>golang 内存管理机制之内存分配 | Blog</title>
     <link rel="icon" type="image/png" href="/favicon.png">
 
     <link rel="stylesheet" type="text/css" href="/libs/awesome/css/all.min.css">
@@ -265,12 +265,12 @@
 
 
 
-<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/16.jpg')">
+<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/23.jpg')">
     <div class="container" style="right: 0px;left: 0px;">
         <div class="row">
             <div class="col s12 m12 l12">
                 <div class="brand">
-                    <h1 class="description center-align post-title">实现k8s webshell</h1>
+                    <h1 class="description center-align post-title">golang 内存管理机制之内存分配</h1>
                 </div>
             </div>
         </div>
@@ -411,7 +411,7 @@
                 
                 <div class="post-date info-break-policy">
                     <i class="far fa-calendar-minus fa-fw"></i>发布日期:&nbsp;&nbsp;
-                    2022-06-23
+                    2022-06-27
                 </div>
                 
 
@@ -420,7 +420,7 @@
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    762
+                    3k
                 </div>
                 
 
@@ -445,162 +445,126 @@
 
         <div class="card-content article-card-content">
             <div id="articleContent">
-                <p>需要用到的相关技术</p>
+                <p>在聊golang的内存管理之前，我们先回顾一下计算机的存储体系</p>
+<h3 id="计算机存储体系"><a href="#计算机存储体系" class="headerlink" title="计算机存储体系"></a>计算机存储体系</h3><p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627135332.png" alt="存储金字塔"></p>
+<p>上图表达了计算机的存储体系，从上到下依次是：</p>
 <ul>
-<li>client-go remotecommand包</li>
-<li>websocket</li>
-<li>xterm.js</li>
+<li>CPU寄存器</li>
+<li>Cache</li>
+<li>内存</li>
+<li>磁盘等辅助存储设备</li>
+<li>鼠标等外设</li>
 </ul>
-<h4 id="remotecommand"><a href="#remotecommand" class="headerlink" title="remotecommand"></a>remotecommand</h4><p>kubernetes client-go 提供的remotecommand包，里面提供了与集群中的容器建立长连接，设置容器的 stdin，stdout 等方法</p>
-<p>remotecommand包的NewSPDYExecutor方法提供基于 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/SPDY">SPDY</a> 协议的 Executor interface，进行和 pod 终端的流的传输</p>
-<p>executor 的 Stream 方法，会建立一个流传输的连接，直到服务端和调用端一端关闭连接，才会停止传输。<br>一般的做法是我们可以定义一个结构体来实现io.Reader io.Writer， 调用 Stream 方法时，只要将 StreamOptions 的 Stdin Stdout 都设置为 这个结构体，Executor 就会通过你定义的 write 和 read 方法来传输数据。</p>
-<pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token keyword">type</span> WSStreamHandler <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
-	conn        <span class="token operator">*</span>websocket<span class="token punctuation">.</span>Conn <span class="token comment">//websocket conn</span>
-	resizeEvent <span class="token keyword">chan</span> remotecommand<span class="token punctuation">.</span>TerminalSize
-	rbuf        <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token builtin">byte</span>
-	cond        <span class="token operator">*</span>sync<span class="token punctuation">.</span>Cond
-
-	sync<span class="token punctuation">.</span>Mutex
-<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<p> <a target="_blank" rel="noopener" href="https://github.com/gorilla/websocket">github.com&#x2F;gorilla&#x2F;websocket</a>  是 go 的一个 websocket 实现，提供了全面的websocket 相关的方法，我们用他来做长连接, 实现Read(p []byte) (int, error)和Write(p []byte) (int, error)方法<br> <pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token comment">// message from web socket client</span>
-<span class="token keyword">type</span> xtermMessage <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
-    MsgType <span class="token builtin">string</span> <span class="token string">`json:"type"`</span>  <span class="token comment">// 类型:resize客户端调整终端, input客户端输入</span>
-    Input   <span class="token builtin">string</span> <span class="token string">`json:"input"`</span> <span class="token comment">// msgtype=input情况下使用</span>
-    Rows    <span class="token builtin">uint16</span> <span class="token string">`json:"rows"`</span>  <span class="token comment">// msgtype=resize情况下使用</span>
-    Cols    <span class="token builtin">uint16</span> <span class="token string">`json:"cols"`</span>  <span class="token comment">// msgtype=resize情况下使用</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token comment">// Run start a loop to fetch from ws client and store the data in byte buffer</span>
-<span class="token keyword">func</span> <span class="token punctuation">(</span>h <span class="token operator">*</span>WSStreamHandler<span class="token punctuation">)</span> <span class="token function">Run</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-	<span class="token keyword">for</span> <span class="token punctuation">&#123;</span>
-		<span class="token boolean">_</span><span class="token punctuation">,</span> p<span class="token punctuation">,</span> err <span class="token operator">:=</span> h<span class="token punctuation">.</span>conn<span class="token punctuation">.</span><span class="token function">ReadMessage</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-		<span class="token keyword">if</span> err <span class="token operator">!=</span> <span class="token boolean">nil</span> <span class="token punctuation">&#123;</span>
-			logger<span class="token punctuation">.</span><span class="token function">Error</span><span class="token punctuation">(</span>context<span class="token punctuation">.</span><span class="token function">Background</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"app"</span><span class="token punctuation">,</span> err<span class="token punctuation">)</span>
-			<span class="token keyword">return</span>
-		<span class="token punctuation">&#125;</span>
-		xmsg <span class="token operator">:=</span> xtermMessage<span class="token punctuation">&#123;</span><span class="token punctuation">&#125;</span>
-		<span class="token keyword">if</span> err <span class="token operator">:=</span> json<span class="token punctuation">.</span><span class="token function">Unmarshal</span><span class="token punctuation">(</span>p<span class="token punctuation">,</span> <span class="token operator">&amp;</span>xmsg<span class="token punctuation">)</span><span class="token punctuation">;</span> err <span class="token operator">!=</span> <span class="token boolean">nil</span> <span class="token punctuation">&#123;</span>
-			logger<span class="token punctuation">.</span><span class="token function">Error</span><span class="token punctuation">(</span>context<span class="token punctuation">.</span><span class="token function">Background</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"app"</span><span class="token punctuation">,</span> err<span class="token punctuation">)</span>
-			<span class="token keyword">return</span>
-		<span class="token punctuation">&#125;</span>
-
-		<span class="token keyword">switch</span> xmsg<span class="token punctuation">.</span>MsgType <span class="token punctuation">&#123;</span>
-		<span class="token keyword">case</span> <span class="token string">"input"</span><span class="token punctuation">:</span>
-			<span class="token punctuation">&#123;</span>
-				h<span class="token punctuation">.</span><span class="token function">Lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-				h<span class="token punctuation">.</span>rbuf <span class="token operator">=</span> <span class="token function">append</span><span class="token punctuation">(</span>h<span class="token punctuation">.</span>rbuf<span class="token punctuation">,</span> xmsg<span class="token punctuation">.</span>Input<span class="token operator">...</span><span class="token punctuation">)</span>
-				h<span class="token punctuation">.</span>cond<span class="token punctuation">.</span><span class="token function">Signal</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-				h<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-			<span class="token punctuation">&#125;</span>
-		<span class="token keyword">case</span> <span class="token string">"resize"</span><span class="token punctuation">:</span>
-			<span class="token punctuation">&#123;</span>
-				ev <span class="token operator">:=</span> remotecommand<span class="token punctuation">.</span>TerminalSize<span class="token punctuation">&#123;</span>
-					Width<span class="token punctuation">:</span>  xmsg<span class="token punctuation">.</span>Cols<span class="token punctuation">,</span>
-					Height<span class="token punctuation">:</span> xmsg<span class="token punctuation">.</span>Rows<span class="token punctuation">&#125;</span>
-				h<span class="token punctuation">.</span>resizeEvent <span class="token operator">&lt;-</span> ev
-			<span class="token punctuation">&#125;</span>
-		<span class="token keyword">default</span><span class="token punctuation">:</span>
-
-		<span class="token punctuation">&#125;</span>
-	<span class="token punctuation">&#125;</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token keyword">func</span> <span class="token punctuation">(</span>h <span class="token operator">*</span>WSStreamHandler<span class="token punctuation">)</span> <span class="token function">Read</span><span class="token punctuation">(</span>b <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token builtin">byte</span><span class="token punctuation">)</span> <span class="token punctuation">(</span>size <span class="token builtin">int</span><span class="token punctuation">,</span> err <span class="token builtin">error</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-	h<span class="token punctuation">.</span><span class="token function">Lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-	<span class="token keyword">for</span> <span class="token function">len</span><span class="token punctuation">(</span>h<span class="token punctuation">.</span>rbuf<span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0</span> <span class="token punctuation">&#123;</span>
-		h<span class="token punctuation">.</span>cond<span class="token punctuation">.</span><span class="token function">Wait</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-	<span class="token punctuation">&#125;</span>
-	size <span class="token operator">=</span> <span class="token function">copy</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> h<span class="token punctuation">.</span>rbuf<span class="token punctuation">)</span>
-	h<span class="token punctuation">.</span>rbuf <span class="token operator">=</span> h<span class="token punctuation">.</span>rbuf<span class="token punctuation">[</span>size<span class="token punctuation">:</span><span class="token punctuation">]</span>
-
-	h<span class="token punctuation">.</span><span class="token function">Unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-
-	<span class="token keyword">return</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token keyword">func</span> <span class="token punctuation">(</span>h <span class="token operator">*</span>WSStreamHandler<span class="token punctuation">)</span> <span class="token function">Write</span><span class="token punctuation">(</span>b <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token builtin">byte</span><span class="token punctuation">)</span> <span class="token punctuation">(</span>size <span class="token builtin">int</span><span class="token punctuation">,</span> err <span class="token builtin">error</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-	size <span class="token operator">=</span> <span class="token function">len</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span>
-
-	os<span class="token punctuation">.</span>Stdout<span class="token punctuation">.</span><span class="token function">Write</span><span class="token punctuation">(</span>b<span class="token punctuation">)</span>
-	err <span class="token operator">=</span> h<span class="token punctuation">.</span>conn<span class="token punctuation">.</span><span class="token function">WriteMessage</span><span class="token punctuation">(</span>websocket<span class="token punctuation">.</span>TextMessage<span class="token punctuation">,</span> b<span class="token punctuation">)</span>
-
-	<span class="token keyword">return</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token keyword">func</span> <span class="token punctuation">(</span>h <span class="token operator">*</span>WSStreamHandler<span class="token punctuation">)</span> <span class="token function">Next</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">(</span>size <span class="token operator">*</span>remotecommand<span class="token punctuation">.</span>TerminalSize<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-	ret <span class="token operator">:=</span> <span class="token operator">&lt;-</span>h<span class="token punctuation">.</span>resizeEvent
-	size <span class="token operator">=</span> <span class="token operator">&amp;</span>ret
-
-	<span class="token keyword">return</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token comment">// Close close session</span>
-<span class="token keyword">func</span> <span class="token punctuation">(</span>t <span class="token operator">*</span>WSStreamHandler<span class="token punctuation">)</span> <span class="token function">Close</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token builtin">error</span> <span class="token punctuation">&#123;</span>
-	<span class="token keyword">return</span> t<span class="token punctuation">.</span>conn<span class="token punctuation">.</span><span class="token function">Close</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></p>
-<p>最后，把http请求升级成websocket，并且调用NewSPDYExecutor创建到容器的连接</p>
+<p>从上至下，访问速度越来越慢，访问时间越来越长。你有没有想过两个简单的问题</p>
+<ol>
+<li>如果CPU直接访问硬盘，CPU能充分利用吗</li>
+<li>如果CPU直接访问内存，CPU能充分利用吗</li>
+</ol>
+<p>CPU速度很快，但硬盘等持久存储很慢，如果CPU直接访问磁盘，磁盘可以拉低CPU的速度，机器整体性能就会低下，为了弥补这2个硬件之间的速率差异，所以在CPU和磁盘之间增加了比磁盘快很多的内存。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627142718.png"></p>
+<p>从上图可以看出，CPU跟内存的速率也是有很大差异的，CPU的速率提高的很快（摩尔定律），然而内存速率增长的很慢，虽然CPU的速率现在增加的很慢了，<br>但是内存的速率也没增加多少，速率差距很大，从1980年开始CPU和内存速率差距在不断拉大，为了弥补这2个硬件之间的速率差异，所以在CPU跟内存之间增加了比内存更快的Cache，<strong>Cache是内存数据的缓存，</strong> 可以降低CPU访问内存的时间。</p>
+<h3 id="虚拟内存"><a href="#虚拟内存" class="headerlink" title="虚拟内存"></a>虚拟内存</h3><p>虚拟内存向进程屏蔽了RAM和磁盘，并向进程提供了远超物理内存大小的内存空间，当某个进程访问内存时，实际访问的是虚拟内存，虚拟内存通过页表查看当前要访问的虚拟内存地址是否加载到物理内存里<br>。如果已经在物理内存，则取物理内存数据，如果没有对应的物理内存，则从磁盘加载数据到物理内存，并把物理内存地址和虚拟内存地址更新到页表。<strong>物理内存就是磁盘存储缓存层。</strong></p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627150046.png" alt="虚拟内存原理"></p>
+<p>另外，在没有虚拟内存的时代，物理内存对所有进程是共享的，多进程同时访问同一个物理内存存在并发访问问题。<strong>引入虚拟内存后，每个进程都有各自的虚拟内存，内存的并发访问问题的粒度从多进程级别，可以降低到多线程级别。</strong></p>
+<h3 id="堆区和栈区"><a href="#堆区和栈区" class="headerlink" title="堆区和栈区"></a>堆区和栈区</h3><p>程序中的数据和变量都会被分配到程序所在的虚拟内存中，内存空间包含两个重要的区域：栈区（Stack）和堆区（Heap）。函数调用的参数、返回值以及局部变量大都会被分配到栈上，这部分内存会由编译器进行管理；<br>不同编程语言使用不同的方法管理堆区的内存，C++ 等编程语言会由工程师主动申请和释放内存，Go 以及 Java 等编程语言会由工程师和编译器共同管理，<strong>堆中的对象由内存分配器分配并由垃圾收集器回收。</strong></p>
+<h4 id="go语言的内存设计原理"><a href="#go语言的内存设计原理" class="headerlink" title="go语言的内存设计原理"></a>go语言的内存设计原理</h4><p>golang 的内存管理一般包含三个不同的组件，分别是用户程序（Mutator）、分配器（Allocator）和收集器（Collector），当用户程序申请内存时，它会通过内存分配器申请新内存，而分配器会负责从堆中初始化相应的内存区域。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627155724.png"></p>
+<p>Go内存管理源自TCMalloc，但它比TCMalloc还多了2件东西：逃逸分析和垃圾回收（关于TCMalloc，有兴趣的朋友可以自行去了解）TCMalloc的核心理念是使用多级缓存将对象根据大小分类，并按照类别实施不同的分配策略。go语言的内存分配器会根据申请分配的内存大小<br>选择不同的处理逻辑，运行时根据对象的大小将对象分成微对象、小对象和大对象三种：</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>大小</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>微对象</td>
+<td>(0, 16B)</td>
+</tr>
+<tr>
+<td>小对象</td>
+<td>[16B, 32KB]</td>
+</tr>
+<tr>
+<td>大对象</td>
+<td>(32KB, +∞)</td>
+</tr>
+</tbody></table>
+<p>基本上程序中的绝大多数对象的大小都在 32KB 以下，而申请的内存大小影响 Go 语言运行时分配内存的过程和开销，所以分别处理大对象和小对象有利于提高内存分配器的性能。</p>
+<h4 id="多级缓存"><a href="#多级缓存" class="headerlink" title="多级缓存"></a>多级缓存</h4><p>内存分配器不仅会区别对待大小不同的对象，还会将内存分成不同的级别分别管理，TCMalloc 和 Go 运行时分配器都会引入线程缓存（Thread Cache）、中心缓存（Central Cache）和页堆（Page Heap）三个组件分级管理内存</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627160855.png"></p>
+<p><strong>page</strong> 在x64下的大小是8KB，上图的最下方，1个浅蓝色的长方形代表1个Page。</p>
+<p><strong>Span</strong> 是内存管理的基本单位，在源码的中为mspan，<strong>一组连续的Page组成1个Span</strong>，所以上图一组连续的浅蓝色长方形代表的是<strong>一组Page组成的1个Span</strong>，另外，1个淡紫色长方形为1个Span。</p>
+<p><strong>mcache</strong> 线程缓存（Thread Cache），保存各种大小的Span，按照 Span class 分类，小对象直接从mcache分配内存，它起到了缓存的作用，并且可以无锁访问。在go中<strong>每个P拥有1个mcache</strong>，<br>因为go语言中当前最多有GOMAXPROCS个线程在运行，所以最多需要GOMAXPROCS个mcache就可以保证各线程对mcache的无锁访问，线程的运行又是与P绑定的，把mcache交给P刚刚好。</p>
+<p><strong>mcentral</strong> 中心缓存（Central Cache）<strong>是所有线程共享的缓存，需要加锁访问</strong> 按Span class对Span分类，串联成链表，当mcache的某个级别Span的内存被分配光时，它会向mcentral申请1个当前级别的Span。</p>
+<p><strong>mheap</strong> 它是堆内存的抽象，把从OS申请出的内存页组织成Span，并保存起来。当mcentral的Span不够用时会向mheap申请，mheap的Span不够用时会向OS申请，向OS的内存申请是按页来的，然后把申请来的内存页生成Span组织起来，同样也是需要加锁访问的。</p>
+<h4 id="go语言的虚拟内存布局"><a href="#go语言的虚拟内存布局" class="headerlink" title="go语言的虚拟内存布局"></a>go语言的虚拟内存布局</h4><p>在 Go 语言 1.10 以前的版本，堆区的内存空间都是连续的；但是在 1.11 版本，Go 团队使用稀疏的堆内存空间替代了连续的内存，解决了连续内存带来的限制以及在特殊场景下可能出现的问题。</p>
+<h5 id="线性内存"><a href="#线性内存" class="headerlink" title="线性内存"></a>线性内存</h5><p>Go 语言程序的 1.10 版本在启动时会初始化整片虚拟内存区域，如下所示的三个区域 spans、bitmap 和 arena 分别预留了 512MB、16GB 以及 512GB 的内存空间，这些内存并不是真正存在的物理内存，而是虚拟内存：<br><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627164729.png"></p>
+<ul>
+<li>spans 区域存储了指向内存管理单元 runtime.mspan 的指针，每个内存单元会管理几页的内存空间，每页大小为 8KB；</li>
+<li>bitmap 用于标识 arena 区域中的那些地址保存了对象，位图中的每个字节都会表示堆区中的 32 字节是否空闲；</li>
+<li>arena 区域是真正的堆区，运行时会将 8KB 看做一页，这些内存页中存储了所有在堆上初始化的对象；</li>
+</ul>
+<p>线性的堆内存需要预留大块的内存空间，但是申请大块的内存空间而不使用是不切实际的，不预留内存空间却会在特殊场景下造成程序崩溃。虽然连续内存的实现比较简单，但是这些问题也没有办法忽略。</p>
+<h5 id="稀疏内存"><a href="#稀疏内存" class="headerlink" title="稀疏内存"></a>稀疏内存</h5><p>稀疏内存是 Go 语言在 1.11 中提出的方案，使用稀疏的内存布局不仅能移除堆大小的上限，还能解决 C 和 Go 混合使用时的地址空间冲突问题。不过因为基于稀疏内存的内存管理失去了内存的连续性这一假设，这也使内存管理变得更加复杂：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627171142.png"></p>
+<p>如上图所示，运行时使用二维的 runtime.heapArena 数组管理所有的内存，每个单元都会管理 64MB 的内存空间：</p>
 <pre class="line-numbers language-go" data-language="go"><code class="language-go">
-<span class="token keyword">var</span> upgrader <span class="token operator">=</span> websocket<span class="token punctuation">.</span>Upgrader<span class="token punctuation">&#123;</span>
-	CheckOrigin<span class="token punctuation">:</span> <span class="token keyword">func</span><span class="token punctuation">(</span>r <span class="token operator">*</span>http<span class="token punctuation">.</span>Request<span class="token punctuation">)</span> <span class="token builtin">bool</span> <span class="token punctuation">&#123;</span>
-		<span class="token keyword">return</span> <span class="token boolean">true</span>
-	<span class="token punctuation">&#125;</span><span class="token punctuation">,</span>
-<span class="token punctuation">&#125;</span>
-
-<span class="token keyword">func</span> <span class="token punctuation">(</span>s <span class="token operator">*</span>Service<span class="token punctuation">)</span> <span class="token function">ContainerExec</span><span class="token punctuation">(</span>ctx context<span class="token punctuation">.</span>Context<span class="token punctuation">,</span> resp http<span class="token punctuation">.</span>ResponseWriter<span class="token punctuation">,</span> req <span class="token operator">*</span>http<span class="token punctuation">.</span>Request<span class="token punctuation">,</span> clusterName<span class="token punctuation">,</span> namespace<span class="token punctuation">,</span> podName <span class="token builtin">string</span><span class="token punctuation">,</span> cmd <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token builtin">string</span><span class="token punctuation">)</span> <span class="token punctuation">(</span>err <span class="token builtin">error</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-    <span class="token comment">//升级成websocket</span>
-	conn<span class="token punctuation">,</span> err <span class="token operator">:=</span> upgrader<span class="token punctuation">.</span><span class="token function">Upgrade</span><span class="token punctuation">(</span>resp<span class="token punctuation">,</span> req<span class="token punctuation">,</span> <span class="token boolean">nil</span><span class="token punctuation">)</span> 
-	<span class="token keyword">if</span> err <span class="token operator">!=</span> <span class="token boolean">nil</span> <span class="token punctuation">&#123;</span>
-		<span class="token keyword">return</span> err
-	<span class="token punctuation">&#125;</span>
-
-    <span class="token comment">//获取Clientset 和 Config</span>
-	client<span class="token punctuation">,</span> conf<span class="token punctuation">,</span> err <span class="token operator">:=</span> cluster<span class="token punctuation">.</span><span class="token function">GetKubeClient</span><span class="token punctuation">(</span>ctx<span class="token punctuation">,</span> clusterName<span class="token punctuation">)</span>
-	<span class="token keyword">if</span> err <span class="token operator">!=</span> <span class="token boolean">nil</span> <span class="token punctuation">&#123;</span>
-		<span class="token keyword">return</span> err
-	<span class="token punctuation">&#125;</span>
-
-	sshReq <span class="token operator">:=</span> client<span class="token punctuation">.</span><span class="token function">CoreV1</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">RESTClient</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">Post</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>
-		<span class="token function">Resource</span><span class="token punctuation">(</span><span class="token string">"pods"</span><span class="token punctuation">)</span><span class="token punctuation">.</span>
-		<span class="token function">Name</span><span class="token punctuation">(</span>podName<span class="token punctuation">)</span><span class="token punctuation">.</span>
-		<span class="token function">Namespace</span><span class="token punctuation">(</span>namespace<span class="token punctuation">)</span><span class="token punctuation">.</span>
-		<span class="token function">SubResource</span><span class="token punctuation">(</span><span class="token string">"exec"</span><span class="token punctuation">)</span><span class="token punctuation">.</span>
-		<span class="token function">VersionedParams</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>v1<span class="token punctuation">.</span>PodExecOptions<span class="token punctuation">&#123;</span>
-			Command<span class="token punctuation">:</span> cmd<span class="token punctuation">,</span>
-			Stdin<span class="token punctuation">:</span>   <span class="token boolean">true</span><span class="token punctuation">,</span>
-			Stdout<span class="token punctuation">:</span>  <span class="token boolean">true</span><span class="token punctuation">,</span>
-			Stderr<span class="token punctuation">:</span>  <span class="token boolean">true</span><span class="token punctuation">,</span>
-			TTY<span class="token punctuation">:</span>     <span class="token boolean">true</span><span class="token punctuation">,</span>
-		<span class="token punctuation">&#125;</span><span class="token punctuation">,</span> scheme<span class="token punctuation">.</span>ParameterCodec<span class="token punctuation">)</span>
-
-	<span class="token comment">// 创建到容器的连接</span>
-	executor<span class="token punctuation">,</span> err <span class="token operator">:=</span> remotecommand<span class="token punctuation">.</span><span class="token function">NewSPDYExecutor</span><span class="token punctuation">(</span>conf<span class="token punctuation">,</span> http<span class="token punctuation">.</span>MethodPost<span class="token punctuation">,</span> sshReq<span class="token punctuation">.</span><span class="token function">URL</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
-	<span class="token keyword">if</span> err <span class="token operator">!=</span> <span class="token boolean">nil</span> <span class="token punctuation">&#123;</span>
-		<span class="token keyword">return</span> err
-	<span class="token punctuation">&#125;</span>
-
-	handler <span class="token operator">:=</span> <span class="token operator">&amp;</span>WSStreamHandler<span class="token punctuation">&#123;</span>
-		conn<span class="token punctuation">:</span>        conn<span class="token punctuation">,</span>
-		resizeEvent<span class="token punctuation">:</span> <span class="token function">make</span><span class="token punctuation">(</span><span class="token keyword">chan</span> remotecommand<span class="token punctuation">.</span>TerminalSize<span class="token punctuation">)</span><span class="token punctuation">,</span>
-	<span class="token punctuation">&#125;</span>
-
-	handler<span class="token punctuation">.</span>cond <span class="token operator">=</span> sync<span class="token punctuation">.</span><span class="token function">NewCond</span><span class="token punctuation">(</span>handler<span class="token punctuation">)</span>
-
-	<span class="token keyword">go</span> handler<span class="token punctuation">.</span><span class="token function">Run</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
-
-	err <span class="token operator">=</span> executor<span class="token punctuation">.</span><span class="token function">Stream</span><span class="token punctuation">(</span>remotecommand<span class="token punctuation">.</span>StreamOptions<span class="token punctuation">&#123;</span>
-		Stdin<span class="token punctuation">:</span>             handler<span class="token punctuation">,</span>
-		Stdout<span class="token punctuation">:</span>            handler<span class="token punctuation">,</span>
-		Stderr<span class="token punctuation">:</span>            handler<span class="token punctuation">,</span>
-		TerminalSizeQueue<span class="token punctuation">:</span> handler<span class="token punctuation">,</span>
-		Tty<span class="token punctuation">:</span>               <span class="token boolean">true</span><span class="token punctuation">,</span>
-	<span class="token punctuation">&#125;</span><span class="token punctuation">)</span>
-
-	<span class="token keyword">return</span>
-<span class="token punctuation">&#125;</span>
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
-
-<h4 id="xterm-js"><a href="#xterm-js" class="headerlink" title="xterm.js"></a>xterm.js</h4><p>前端页面使用 <a target="_blank" rel="noopener" href="https://github.com/xtermjs/xterm.js">xterm.js</a> 进行模拟terminal展示，只要 javascript 监听 Terminal 对象的对应事件及 websocket 连接的事件，进行对应的页面展示和消息推送就可以了。</p>
+<span class="token comment">// A heapArena stores metadata for a heap arena. heapArenas are stored</span>
+<span class="token comment">// outside of the Go heap and accessed via the mheap_.arenas index.</span>
+<span class="token comment">//</span>
+<span class="token comment">//go:notinheap</span>
+<span class="token keyword">type</span> heapArena <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
+	bitmap <span class="token punctuation">[</span>heapArenaBitmapBytes<span class="token punctuation">]</span><span class="token builtin">byte</span>
+	spans <span class="token punctuation">[</span>pagesPerArena<span class="token punctuation">]</span><span class="token operator">*</span>mspan
+	pageInUse <span class="token punctuation">[</span>pagesPerArena <span class="token operator">/</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token builtin">uint8</span>
+	pageMarks <span class="token punctuation">[</span>pagesPerArena <span class="token operator">/</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token builtin">uint8</span>
+	pageSpecials <span class="token punctuation">[</span>pagesPerArena <span class="token operator">/</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token builtin">uint8</span>
+	checkmarks <span class="token operator">*</span>checkmarksMap
+	zeroedBase <span class="token builtin">uintptr</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+<p>该结构体中的 bitmap 和 spans 与线性内存中的 bitmap 和 spans 区域一一对应，zeroedBase 字段指向了该结构体管理的内存的基地址。上述设计将原有的连续大内存切分成稀疏的小内存，而用于管理这些内存的元信息也被切成了小块。</p>
+<p>不同平台和架构的二维数组大小可能完全不同，如果我们的 Go 语言服务在 Linux 的 x86-64 架构上运行，二维数组的一维大小会是 1，而二维大小是 4,194,304，因为每一个指针占用 8 字节的内存空间，所以元信息的总大小为 32MB。由于每个 runtime.heapArena 都会管理 64MB 的内存，整个堆区最多可以管理 256TB 的内存，这比之前的 512GB 多好几个数量级。</p>
+<p>由于内存的管理变得更加复杂，上述改动对垃圾回收稍有影响，大约会增加 1% 的垃圾回收开销，不过这也是我们为了解决已有问题必须付出的成本。</p>
+<p>因为所有的内存最终都是要从操作系统中申请的，所以 Go 语言的运行时构建了操作系统的内存管理抽象层，该抽象层将运行时管理的地址空间分成以下四种状态</p>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>None</td>
+<td>内存没有被保留或者映射，是地址空间的默认状态</td>
+</tr>
+<tr>
+<td>Reserved</td>
+<td>运行时持有该地址空间，但是访问该内存会导致错误</td>
+</tr>
+<tr>
+<td>Prepared</td>
+<td>内存被保留，一般没有对应的物理内存访问该片内存的行为是未定义的可以快速转换到 Ready 状态</td>
+</tr>
+<tr>
+<td>Ready</td>
+<td>可以被安全访问</td>
+</tr>
+</tbody></table>
+<h5 id="地址空间的状态"><a href="#地址空间的状态" class="headerlink" title="地址空间的状态"></a>地址空间的状态</h5><p>每个不同的操作系统都会包含一组用于管理内存的特定方法，这些方法可以让内存地址空间在不同的状态之间转换，我们可以通过下图了解不同状态之间的转换过程：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627174452.png"></p>
+<p>运行时中包含多个操作系统实现的状态转换方法，所有的实现都包含在以 mem_ 开头的文件中，本文主要介绍 Linux 操作系统对上图中方法的实现</p>
+<ul>
+<li>runtime.sysAlloc 会从操作系统中获取一大块可用的内存空间，可能为几百 KB 或者几 MB；</li>
+<li>runtime.sysFree 会在程序发生内存不足（Out-of Memory，OOM）时调用并无条件地返回内存；</li>
+<li>runtime.sysReserve 会保留操作系统中的一片内存区域，访问这片内存会触发异常；</li>
+<li>runtime.sysMap 保证内存区域可以快速转换至就绪状态；</li>
+<li>runtime.sysUsed 通知操作系统应用程序需要使用该内存区域，保证内存区域可以安全访问；</li>
+<li>runtime.sysUnused 通知操作系统虚拟内存对应的物理内存已经不再需要，可以重用物理内存；</li>
+<li>runtime.sysFault 将内存区域转换成保留状态，主要用于运行时的调试；</li>
+</ul>
+<h4 id="内存管理组件"><a href="#内存管理组件" class="headerlink" title="内存管理组件"></a>内存管理组件</h4><p>Go 语言的内存分配器包含内存管理单元、线程缓存、中心缓存和页堆几个重要组件，其中对应的数据结构 runtime.mspan、runtime.mcache、runtime.mcentral 和 runtime.mheap，我们会详细介绍它们在内存分配器中的作用以及实现。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627175110.png"></p>
 
                 
             </div>
@@ -627,7 +591,7 @@
                     </i>
                 </span>
                 <span class="reprint-info">
-                    <a href="http://chiron.chiu-chiu.cn/2022/06/23/remotecommand-shi-xian-k8s-webshell/">http://chiron.chiu-chiu.cn/2022/06/23/remotecommand-shi-xian-k8s-webshell/</a>
+                    <a href="http://chiron.chiu-chiu.cn/2022/06/27/golang-nei-cun-guan-li-ji-zhi/">http://chiron.chiu-chiu.cn/2022/06/27/golang-nei-cun-guan-li-ji-zhi/</a>
                 </span>
             </div>
             <div class="reprint__notice">
@@ -840,9 +804,60 @@
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
+                <i class="far fa-dot-circle"></i>&nbsp;本篇
+            </div>
+            <div class="card">
+                <a href="/2022/06/27/golang-nei-cun-guan-li-ji-zhi/">
+                    <div class="card-image">
+                        
+                        
+                        <img src="/medias/featureimages/23.jpg" class="responsive-img" alt="golang 内存管理机制之内存分配">
+                        
+                        <span class="card-title">golang 内存管理机制之内存分配</span>
+                    </div>
+                </a>
+                <div class="card-content article-content">
+                    <div class="summary block-with-text">
+                        
+                            golang 的内存分配器
+                        
+                    </div>
+                    <div class="publish-info">
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2022-06-27
+                            </span>
+                        <span class="publish-author">
+                            
+                            <i class="fas fa-bookmark fa-fw icon-category"></i>
+                            
+                            <a href="/categories/%E6%8A%80%E6%9C%AF%E6%96%87%E7%AB%A0/" class="post-category">
+                                    技术文章
+                                </a>
+                            
+                            
+                        </span>
+                    </div>
+                </div>
+
+                
+                <div class="card-action article-tags">
+                    
+                    <a href="/tags/k8s/">
+                        <span class="chip bg-color">k8s</span>
+                    </a>
+                    
+                </div>
+                
+            </div>
+        </div>
+        
+        
+        <div class="article col s12 m6" data-aos="fade-up">
+            <div class="article-badge right-badge text-color">
+                下一篇&nbsp;<i class="fas fa-chevron-right"></i>
+            </div>
             <div class="card">
                 <a href="/2022/06/25/github-action/">
                     <div class="card-image">
@@ -860,9 +875,9 @@
                         
                     </div>
                     <div class="publish-info">
-                        <span class="publish-date">
-                            <i class="far fa-clock fa-fw icon-date"></i>2022-06-25
-                        </span>
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2022-06-25
+                            </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
@@ -880,55 +895,6 @@
                     
                     <a href="/tags/github/">
                         <span class="chip bg-color">github</span>
-                    </a>
-                    
-                </div>
-                
-            </div>
-        </div>
-        
-        
-        <div class="article col s12 m6" data-aos="fade-up">
-            <div class="article-badge right-badge text-color">
-                下一篇&nbsp;<i class="fas fa-chevron-right"></i>
-            </div>
-            <div class="card">
-                <a href="/2022/06/21/wang-luo-si-ceng-qi-ceng-xie-yi/">
-                    <div class="card-image">
-                        
-                        
-                        <img src="/medias/featureimages/8.jpg" class="responsive-img" alt="网络四层七层协议">
-                        
-                        <span class="card-title">网络四层七层协议</span>
-                    </div>
-                </a>
-                <div class="card-content article-content">
-                    <div class="summary block-with-text">
-                        
-                            网络四，七层协议讲解
-                        
-                    </div>
-                    <div class="publish-info">
-                            <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2022-06-21
-                            </span>
-                        <span class="publish-author">
-                            
-                            <i class="fas fa-bookmark fa-fw icon-category"></i>
-                            
-                            <a href="/categories/%E6%8A%80%E6%9C%AF%E6%96%87%E7%AB%A0/" class="post-category">
-                                    技术文章
-                                </a>
-                            
-                            
-                        </span>
-                    </div>
-                </div>
-                
-                <div class="card-action article-tags">
-                    
-                    <a href="/tags/%E7%BD%91%E7%BB%9C/">
-                        <span class="chip bg-color">网络</span>
                     </a>
                     
                 </div>
