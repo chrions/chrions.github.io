@@ -420,7 +420,7 @@
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    3.7k
+                    4.1k
                 </div>
                 
 
@@ -603,6 +603,21 @@
 <p>当<strong>用户程序或线程</strong>向runtime.mspan申请内存时，它会使用 allocCache 字段以对象为单位在管理的内存中快速查找待分配的空间：</p>
 <p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220627190406.png"></p>
 <p>如果我们能在内存中找到空闲的内存单元会直接返回，当内存中不包含空闲的内存时，上一级的组件 <strong>runtime.mcache 会为调用 runtime.mcache.refill</strong> 更新内存管理单元以满足为更多对象分配内存的需求。</p>
+<p>运行时会使用 runtime.mSpanStateBox 存储内存管理单元的状态 runtime.mSpanState，该状态可能处于 mSpanDead、mSpanInUse、mSpanManual 和 mSpanFree 四种情况。当 runtime.mspan 在空闲堆中，它会处于 mSpanFree 状态；当 runtime.mspan 已经被分配时，它会处于 mSpanInUse、mSpanManual 状态，运行时会遵循下面的规则转换该状态：</p>
+<ul>
+<li>在垃圾回收的任意阶段，可能从 mSpanFree 转换到 mSpanInUse 和 mSpanManual；</li>
+<li>在垃圾回收的清除阶段，可能从 mSpanInUse 和 mSpanManual 转换到 mSpanFree；</li>
+<li>在垃圾回收的标记阶段，不能从 mSpanInUse 和 mSpanManual 转换到 mSpanFree；</li>
+</ul>
+<p>设置 runtime.mspan 状态的操作必须是<strong>原子性</strong>的以避免垃圾回收造成的线程竞争问题。</p>
+<h4 id="跨度类"><a href="#跨度类" class="headerlink" title="跨度类"></a>跨度类</h4><p>runtime.spanClass 是 runtime.mspan 的跨度类，它决定了内存管理单元中存储的对象大小和个数：</p>
+<pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token keyword">type</span> mspan <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
+	<span class="token operator">...</span>
+	spanclass   spanClass
+	<span class="token operator">...</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+<p>Go 语言的内存管理模块中一共包含 67 种跨度类, 最小的是8KB，最大是32KB，每一个跨度类都会存储特定大小的对象并且包含特定数量的页数以及对象，所有的数据都会被预选计算好并存储在 runtime.class_to_size 和 runtime.class_to_allocnpages 等变量中，<br>因为内存需要按照页进行管理，所以当页中存储的对象不是页大小的整数倍时会产生内存的浪费。</p>
+<p>除了上述 67 个跨度类之外，运行时中还包含 ID 为 0 的特殊跨度类，它能够管理大于 32KB 的特殊对象</p>
 
                 
             </div>
@@ -1129,7 +1144,7 @@
             <br>
             
                 &nbsp;<i class="fas fa-chart-area"></i>&nbsp;站点总字数:&nbsp;<span
-                        class="white-color">8.5k</span>
+                        class="white-color">8.9k</span>
             
             
             
