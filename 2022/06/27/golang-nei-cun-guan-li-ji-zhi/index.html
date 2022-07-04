@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="golang 内存管理机制之内存分配, Blog">
+    <meta name="keywords" content="golang 内存分配机制, Blog">
     <meta name="description" content="golang 的内存分配器">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -19,7 +19,7 @@
 
     
 
-    <title>golang 内存管理机制之内存分配 | Blog</title>
+    <title>golang 内存分配机制 | Blog</title>
     <link rel="icon" type="image/png" href="/favicon.png">
 
     <link rel="stylesheet" type="text/css" href="/libs/awesome/css/all.min.css">
@@ -265,12 +265,12 @@
 
 
 
-<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/23.jpg')">
+<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/16.jpg')">
     <div class="container" style="right: 0px;left: 0px;">
         <div class="row">
             <div class="col s12 m12 l12">
                 <div class="brand">
-                    <h1 class="description center-align post-title">golang 内存管理机制之内存分配</h1>
+                    <h1 class="description center-align post-title">golang 内存分配机制</h1>
                 </div>
             </div>
         </div>
@@ -420,7 +420,7 @@
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    4.1k
+                    6.7k
                 </div>
                 
 
@@ -617,7 +617,89 @@
 	<span class="token operator">...</span>
 <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
 <p>Go 语言的内存管理模块中一共包含 67 种跨度类, 最小的是8KB，最大是32KB，每一个跨度类都会存储特定大小的对象并且包含特定数量的页数以及对象，所有的数据都会被预选计算好并存储在 runtime.class_to_size 和 runtime.class_to_allocnpages 等变量中，<br>因为内存需要按照页进行管理，所以当页中存储的对象不是页大小的整数倍时会产生内存的浪费。</p>
-<p>除了上述 67 个跨度类之外，运行时中还包含 ID 为 0 的特殊跨度类，它能够管理大于 32KB 的特殊对象</p>
+<p>除了上述 67 个跨度类之外，运行时中还包含 ID 为 0 的特殊跨度类，它能够管理大于 32KB 的特殊对象，由堆直接负责；</p>
+<p>此外跨度类中除了存储类别的 ID 之外，它还会存储一个 noscan 标记位，该标记位表示对象是否包含指针，垃圾回收会对包含指针的 runtime.mspan 结构体进行扫描。</p>
+<pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token keyword">func</span> <span class="token function">makeSpanClass</span><span class="token punctuation">(</span>sizeclass <span class="token builtin">uint8</span><span class="token punctuation">,</span> noscan <span class="token builtin">bool</span><span class="token punctuation">)</span> spanClass <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> <span class="token function">spanClass</span><span class="token punctuation">(</span>sizeclass<span class="token operator">&lt;&lt;</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token operator">|</span> <span class="token function">spanClass</span><span class="token punctuation">(</span><span class="token function">bool2int</span><span class="token punctuation">(</span>noscan<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">&#125;</span>
+
+<span class="token keyword">func</span> <span class="token punctuation">(</span>sc spanClass<span class="token punctuation">)</span> <span class="token function">sizeclass</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token builtin">int8</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> <span class="token function">int8</span><span class="token punctuation">(</span>sc <span class="token operator">>></span> <span class="token number">1</span><span class="token punctuation">)</span>
+<span class="token punctuation">&#125;</span>
+
+<span class="token keyword">func</span> <span class="token punctuation">(</span>sc spanClass<span class="token punctuation">)</span> <span class="token function">noscan</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token builtin">bool</span> <span class="token punctuation">&#123;</span>
+    <span class="token keyword">return</span> sc<span class="token operator">&amp;</span><span class="token number">1</span> <span class="token operator">!=</span> <span class="token number">0</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p>runtime.spanClass 是一个 uint8 类型的整数，它的前 7 位存储着跨度类的 ID，最后一位表示是否包含指针，该类型提供的两个方法能够帮我们快速获取对应的字段。</p>
+<h4 id="线程缓存"><a href="#线程缓存" class="headerlink" title="线程缓存"></a>线程缓存</h4><p>runtime.mcache 是 Go 语言中的线程缓存，<strong>它会与线程上的处理器一一绑定，</strong> 主要用来缓存用户程序申请的微小对象。每一个线程缓存都持有 68 * 2 个 runtime.mspan，这些内存管理单元都存储在结构体的 alloc 字段中：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220628124513.png"></p>
+<h5 id="初始化"><a href="#初始化" class="headerlink" title="初始化"></a>初始化</h5><p>线程缓存在刚刚初始化的时候是不包含mspan的，只有当用户程序申请内存时才会从上一级组件获取新的mspan满足内存分配的需求。运行时在初始化处理器时调用runtime.allocmcache<br>初始化线程缓存，该函数会在系统堆里使用runtime.mheap中的线程缓存分配器初始化新的runtime.mcache结构体，初始化后的 runtime.mcache 中的所有 runtime.mspan 都是空的占位符 emptymspan。</p>
+<h5 id="替换"><a href="#替换" class="headerlink" title="替换"></a>替换</h5><p>runtime.mcache.refill 会为线程缓存获取一个指定跨度类的内存管理单元，被替换的单元<strong>不能包含空闲的内存空间</strong>，而获取的单元中需要至少包含一个空闲对象用于分配内存，此方法会从中心缓存中申请新的 runtime.mspan 存储到线程缓存中，这也是向线程缓存插入内存管理单元的唯一方法。</p>
+<h5 id="微分配器"><a href="#微分配器" class="headerlink" title="微分配器"></a>微分配器</h5><p>线程缓存中还包含几个用于分配微对象的字段，专门管理16字节以下的对象</p>
+<pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token keyword">type</span> mcache <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
+	tiny             <span class="token builtin">uintptr</span>
+	tinyoffset       <span class="token builtin">uintptr</span>
+	local_tinyallocs <span class="token builtin">uintptr</span>
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+<p>微分配器只会用于分配非指针类型的内存，上述三个字段中 tiny 会指向堆中的一片内存，tinyOffset 是下一个空闲内存所在的偏移量，最后的 local_tinyallocs 会记录内存分配器中分配的对象个数。</p>
+<h4 id="中心缓存"><a href="#中心缓存" class="headerlink" title="中心缓存"></a>中心缓存</h4><p>runtime.mcentral 是内存分配器的中心缓存，与线程缓存不同，访问中心缓存中的内存管理单元<strong>需要使用互斥锁</strong></p>
+<pre class="line-numbers language-go" data-language="go"><code class="language-go"><span class="token keyword">type</span> mcentral <span class="token keyword">struct</span> <span class="token punctuation">&#123;</span>
+	spanclass spanClass
+	partial  <span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span>spanSet
+	full     <span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span>spanSet
+<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+<p>每个中心缓存都会管理某个跨度类的内存管理单元，它会同时持有两个 runtime.spanSet，分别存储包含空闲对象和不包含空闲对象的内存管理单元。</p>
+<h5 id="内存管理单元-1"><a href="#内存管理单元-1" class="headerlink" title="内存管理单元"></a>内存管理单元</h5><p>线程缓存会通过中心缓存的 runtime.mcentral.cacheSpan 方法获取新的内存管理单元，该方法通过以下几个部分完成</p>
+<ul>
+<li>首先搜索中心缓存中的空闲集合，查找里面可用的runtime.mspan，运行时总是<strong>先获取清理过的内存单元，后检查未清理过的内存管理单元</strong></li>
+<li>当找到需要回收的内存单元时，运行时会触发 runtime.mspan.sweep 进行清理，如果在包含空闲空间的集合中没有找到管理单元，运行时会尝试从未曾清理过的集合中获取</li>
+<li>如果 runtime.mcentral 通过上述两个阶段都没有找到可用的单元，它会调用 runtime.mcentral.grow 触发扩容<strong>从堆中申请新的内存</strong></li>
+</ul>
+<h5 id="扩容"><a href="#扩容" class="headerlink" title="扩容"></a>扩容</h5><p>中心缓存的扩容方法 runtime.mcentral.grow 会根据预先计算的 class_to_allocnpages 和 class_to_size 获取待分配的页数以及跨度类并调用 runtime.mheap.alloc 获取新的 runtime.mspan 结构</p>
+<h4 id="页堆"><a href="#页堆" class="headerlink" title="页堆"></a>页堆</h4><p>runtime.mheap 是内存分配的核心结构体，Go 语言程序会将其作为全局变量存储，而<strong>堆上初始化的所有对象都由该结构体统一管理</strong>，该结构体中包含两组非常重要的字段，<br>其中一个是<strong>全局的中心缓存列表 central</strong>，另一个是管理堆区内存区域的 arenas 以及相关字段。</p>
+<p>页堆中包含一个长度为 136 的 runtime.mcentral 数组，其中 68 个为跨度类需要 scan 的中心缓存，另外的 68 个是 noscan 的中心缓存：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220704212112.png"></p>
+<h5 id="初始化-1"><a href="#初始化-1" class="headerlink" title="初始化"></a>初始化</h5><p>runtime.mheap.init 方法会初始化空闲链表分配器以及central 切片中 runtime.mcentral 类型的中心缓存；<br>堆中初始化的多个空闲链表分配器与设计原理中提到的分配器没有太多区别，当我们调用 runtime.fixalloc.init 初始化分配器时，需要传入待初始化的结构体大小等信息，这会帮助分配器分割待分配的内存<br>除了这些空闲链表分配器之外，我们还会在该方法中初始化所有的中心缓存，这些中心缓存会维护全局的内存管理单元，各个线程会通过中心缓存获取新的内存单元。</p>
+<h5 id="内存管理单元-2"><a href="#内存管理单元-2" class="headerlink" title="内存管理单元"></a>内存管理单元</h5><p>runtime.mheap 会通过它的 runtime.mheap.alloc 方法在<strong>系统栈</strong>中获取新的 runtime.mspan 单元<br>为了阻止内存的大量占用和堆的增长，我们在分配对应页数的内存前需要先调用 runtime.mheap.reclaim 方法回收一部分内存，随后运行时通过 runtime.mheap.allocSpan 分配新的内存管理单元，我们会将该方法的执行过程拆分成两个部分</p>
+<ul>
+<li>从堆上分配新的内存页和内存管理单元 runtime.mspan；</li>
+<li>初始化内存管理单元并将其加入 runtime.mheap 持有内存单元列表；</li>
+</ul>
+<p>首先我们需要在堆上申请 npages 数量的内存页并初始化 runtime.mspan，该方法会通过处理器的页缓存 runtime.pageCache 或者全局的页分配器 runtime.pageAlloc 两种途径从堆中申请内存：</p>
+<ol>
+<li>如果申请的内存比较小，获取申请内存的处理器并尝试调用 runtime.pageCache.alloc 获取内存区域的基地址和大小；</li>
+<li>如果申请的内存比较大或者线程的页缓存中内存不足，会通过 runtime.pageAlloc.alloc 在页堆上申请内存；</li>
+<li>如果发现页堆上的内存不足，会尝试通过 runtime.mheap.grow 扩容并重新调用 runtime.pageAlloc.alloc 申请内存；<ol>
+<li>如果申请到内存，意味着扩容成功； </li>
+<li>如果没有申请到内存，意味着扩容失败，宿主机可能不存在空闲内存，运行时会直接中止当前程序；</li>
+</ol>
+</li>
+</ol>
+<h5 id="扩容-1"><a href="#扩容-1" class="headerlink" title="扩容"></a>扩容</h5><p>runtime.mheap.grow 会向操作系统申请更多的内存空间，传入的页数经过对齐可以得到期望的内存大小，我们可以将该方法的执行过程分成以下几个部分：</p>
+<ol>
+<li>通过传入的页数获取期望分配的内存空间大小以及内存的基地址；</li>
+<li>如果 arena 区域没有足够的空间，调用 runtime.mheap.sysAlloc 从操作系统中申请更多的内存；</li>
+<li>扩容 runtime.mheap 持有的 arena 区域并更新页分配器的元信息；</li>
+<li>在某些场景下，调用 runtime.pageAlloc.scavenge 回收不再使用的空闲内存页；</li>
+</ol>
+<h4 id="内存分配"><a href="#内存分配" class="headerlink" title="内存分配"></a>内存分配</h4><p>堆上所有的对象都会通过调用 runtime.newobject 函数分配内存，该函数会调用 runtime.mallocgc 分配指定大小的内存空间，这也是用户程序向堆上申请内存空间的必经函数：</p>
+<p>通过runtime.gomcache 获取线程缓存并判断申请内存的类型是否为指针。<br>runtime.mallocgc 会根据对象的大小执行不同的分配逻辑，</p>
+<h5 id="三种对象"><a href="#三种对象" class="headerlink" title="三种对象"></a>三种对象</h5><p>微对象 (0, 16B) — 先使用微型分配器，再依次尝试线程缓存、中心缓存和堆分配内存；</p>
+<p>小对象 [16B, 32KB] — 依次尝试使用线程缓存、中心缓存和堆分配内存；</p>
+<p>大对象 (32KB, +∞) — 直接在堆上分配内存；</p>
+<h5 id="微对象"><a href="#微对象" class="headerlink" title="微对象"></a>微对象</h5><p>Go 语言运行时将小于 16 字节的对象划分为微对象，它会使用线程缓存上的微分配器提高微对象分配的性能，我们主要使用它来分配较小的字符串以及逃逸的临时变量。微分配器可以将多个较小的内存分配请求合入同一个内存块中，<strong>只有当内存块中的所有对象都需要被回收时，整片内存才可能被回收。</strong></p>
+<p>微分配器管理的对象不可以是指针类型，管理多个对象的内存块大小 maxTinySize 是可以调整的，在默认情况下，内存块的大小为 16 字节。maxTinySize 的值越大，组合多个对象的可能性就越高，内存浪费也就越严重；maxTinySize 越小，内存浪费就会越少，不过无论如何调整，8 的倍数都是一个很好的选择。</p>
+<h5 id="小对象"><a href="#小对象" class="headerlink" title="小对象"></a>小对象</h5><p>小对象是指大小为 16 字节到 32,768 字节的对象以及所有小于 16 字节的指针类型的对象，小对象的分配可以被分成以下的三个步骤：</p>
+<ol>
+<li>确定分配对象的大小以及跨度类 runtime.spanClass；</li>
+<li>从线程缓存、中心缓存或者堆中获取内存管理单元并从内存管理单元找到空闲的内存空间；</li>
+<li>调用 runtime.memclrNoHeapPointers 清空空闲内存中的所有数据；</li>
+</ol>
+<p>确定待分配的对象大小以及跨度类需要使用预先计算好的 size_to_class8、size_to_class128 以及 class_to_size 字典，这些字典能够帮助我们快速获取对应的值并构建 runtime.spanClass</p>
+<h5 id="大对象"><a href="#大对象" class="headerlink" title="大对象"></a>大对象</h5><p>运行时对于大于 32KB 的大对象会单独处理，我们不会从线程缓存或者中心缓存中获取内存管理单元，而是直接调用 runtime.mcache.allocLarge 分配大片内存</p>
+<p>runtime.mcache.allocLarge 会计算分配该对象所需要的页数，它按照 8KB 的倍数在堆上申请内存</p>
+<p>申请内存时会创建一个跨度类为 0 的 runtime.spanClass 并调用 runtime.mheap.alloc 分配一个管理对应内存的管理单元。</p>
 
                 
             </div>
@@ -866,9 +948,9 @@
                     <div class="card-image">
                         
                         
-                        <img src="/medias/featureimages/23.jpg" class="responsive-img" alt="golang 内存管理机制之内存分配">
+                        <img src="/medias/featureimages/16.jpg" class="responsive-img" alt="golang 内存分配机制">
                         
-                        <span class="card-title">golang 内存管理机制之内存分配</span>
+                        <span class="card-title">golang 内存分配机制</span>
                     </div>
                 </a>
                 <div class="card-content article-content">
@@ -1144,7 +1226,7 @@
             <br>
             
                 &nbsp;<i class="fas fa-chart-area"></i>&nbsp;站点总字数:&nbsp;<span
-                        class="white-color">8.9k</span>
+                        class="white-color">11.5k</span>
             
             
             
