@@ -420,7 +420,7 @@
                 
                 <div class="info-break-policy">
                     <i class="far fa-file-word fa-fw"></i>文章字数:&nbsp;&nbsp;
-                    993
+                    1.2k
                 </div>
                 
 
@@ -604,7 +604,33 @@ touch docker_build.yml &amp;&amp; touch go.yml<span aria-hidden="true" class="li
 <p>push到github后，打上tag就会自动构建docker镜像并推到dockerhub，构建成功！</p>
 <p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220625190135.png"></p>
 <p>以上只是最简单的构建，这里有 <a target="_blank" rel="noopener" href="https://docs.github.com/cn/actions">GitHub action</a> 的更多语法</p>
-<p>对于Action，尽量选择大厂和官方发布的 action，如果是使用个人开发者的作品，最好能检视一下其具体实现代码，免得出现网上爆出来的泄漏隐私密钥等事情发生。 比如 GitHub 官方维护的 <a target="_blank" rel="noopener" href="https://github.com/actions%E3%80%82">action</a> 列表</p>
+<p>对于Action，尽量选择大厂和官方发布的 action，如果是使用个人开发者的作品，最好能检视一下其具体实现代码，免得出现网上爆出来的泄漏隐私密钥等事情发生。 比如 GitHub 官方维护的 <a target="_blank" rel="noopener" href="https://github.com/actions">action</a> 列表</p>
+<p>以上用的是github免费提供的构建机，但是对私有仓库有大量构建需求的项目，使用 GitHub Actions 提供的构建机性价比不高，github action 允许我们自己配置自己的runner </p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20220706153715.png"></p>
+<p>按照文档给出的步骤在自己的服务器上一步步输入命令就可以启动自己runner，我已经建好了一个名为deploy的runner，也可以用docker 启动GitHub runner</p>
+<p>创建docker-compose.yml文件</p>
+<pre class="line-numbers language-yaml" data-language="yaml"><code class="language-yaml"><span class="token key atrule">version</span><span class="token punctuation">:</span> <span class="token string">'2.3'</span>
+<span class="token key atrule">services</span><span class="token punctuation">:</span>
+  <span class="token key atrule">worker</span><span class="token punctuation">:</span>
+    <span class="token key atrule">image</span><span class="token punctuation">:</span> myoung34/github<span class="token punctuation">-</span>runner<span class="token punctuation">:</span>latest
+    <span class="token key atrule">environment</span><span class="token punctuation">:</span>
+      <span class="token key atrule">REPO_URL</span><span class="token punctuation">:</span> your repositorie
+      <span class="token key atrule">RUNNER_NAME</span><span class="token punctuation">:</span> your runner name
+      <span class="token key atrule">RUNNER_TOKEN</span><span class="token punctuation">:</span> your runner token
+      <span class="token key atrule">RUNNER_WORKDIR</span><span class="token punctuation">:</span> your runnr workdir
+      <span class="token key atrule">LABELS</span><span class="token punctuation">:</span> linux<span class="token punctuation">,</span>x64<span class="token punctuation">,</span>gpu
+    <span class="token key atrule">security_opt</span><span class="token punctuation">:</span>
+      <span class="token comment"># needed on SELinux systems to allow docker container to manage other docker containers</span>
+      <span class="token punctuation">-</span> label<span class="token punctuation">:</span>disable
+    <span class="token key atrule">volumes</span><span class="token punctuation">:</span>
+      <span class="token punctuation">-</span> <span class="token string">'/var/run/docker.sock:/var/run/docker.sock'</span> 
+      <span class="token punctuation">-</span> <span class="token string">'/tmp/runner:/tmp/runner'</span>
+      <span class="token comment"># note: a quirk of docker-in-docker is that this path</span>
+      <span class="token comment"># needs to be the same path on host and inside the container,</span>
+      <span class="token comment"># docker mgmt cmds run outside of docker but expect the paths from within</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre>
+
+<p>执行 docker-compose up -d 启动github action 容器</p>
+<p>最后把 runs-on 设置为 self-hosted ，这样 action 就会使用刚刚注册好的自己的runner机器</p>
 
                 
             </div>
@@ -1129,7 +1155,7 @@ touch docker_build.yml &amp;&amp; touch go.yml<span aria-hidden="true" class="li
             <br>
             
                 &nbsp;<i class="fas fa-chart-area"></i>&nbsp;站点总字数:&nbsp;<span
-                        class="white-color">11.5k</span>
+                        class="white-color">11.8k</span>
             
             
             
