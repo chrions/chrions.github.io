@@ -442,7 +442,7 @@
 <p>在v1.8版本中组合了插入写屏障和删除写屏障构成了混合写屏障，该写屏障<strong>会将被覆盖的对象标记成灰色并在当前栈没有扫描时将新对象也标记成灰色：</strong></p>
 <figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">writePointer(slot, ptr):</span><br><span class="line">    shade(*slot)</span><br><span class="line">    <span class="keyword">if</span> current stack is grey:</span><br><span class="line">        shade(ptr)</span><br><span class="line">    *slot = ptr</span><br></pre></td></tr></table></figure>
 <p>为了移除栈的重扫描过程，除了引入混合写屏障之外，在垃圾收集的标记阶段，我们还需要将<strong>创建的所有新对象都标记成黑色</strong>，防止新分配的栈内存和堆内存中的对象被错误地回收，<br>因为栈内存在标记阶段最终都会变为黑色，所以不再需要重新扫描栈空间。</p>
-
+<h3 id=""><a href="#" class="headerlink" title=""></a></h3>
                 
             </div>
             <hr/>
