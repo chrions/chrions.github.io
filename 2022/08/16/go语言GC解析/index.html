@@ -442,7 +442,56 @@
 <p>在v1.8版本中组合了插入写屏障和删除写屏障构成了混合写屏障，该写屏障<strong>会将被覆盖的对象标记成灰色并在当前栈没有扫描时将新对象也标记成灰色：</strong></p>
 <figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">writePointer(slot, ptr):</span><br><span class="line">    shade(*slot)</span><br><span class="line">    <span class="keyword">if</span> current stack is grey:</span><br><span class="line">        shade(ptr)</span><br><span class="line">    *slot = ptr</span><br></pre></td></tr></table></figure>
 <p>为了移除栈的重扫描过程，除了引入混合写屏障之外，在垃圾收集的标记阶段，我们还需要将<strong>创建的所有新对象都标记成黑色</strong>，防止新分配的栈内存和堆内存中的对象被错误地回收，<br>因为栈内存在标记阶段最终都会变为黑色，所以不再需要重新扫描栈空间。</p>
-<h3 id=""><a href="#" class="headerlink" title=""></a></h3>
+<h5 id="实现原理"><a href="#实现原理" class="headerlink" title="实现原理"></a>实现原理</h5><p>Go 语言的垃圾收集可以分成<strong>清除终止、标记、标记终止和清除</strong> 四个不同阶段</p>
+<ol>
+<li>清理终止阶段<ol>
+<li><strong>暂停程序</strong>，所以的处理器在此时会进入安全点</li>
+<li>如果当前垃圾收集循环是强制触发的，我们还需要处理还未被清理的内存管理单元；</li>
+</ol>
+</li>
+<li>标记阶段<ol>
+<li>将状态切换至 _GCmark、开启写屏障，用户程序协助将根对象入队</li>
+<li>恢复执行程序，标记进程和用于协助的用户程序会开始<strong>并发标记内存中的对象</strong>，<br>写屏障会将被覆盖的指针和新指针都标记成灰色，而所有新创建的对象都会被直接标记成黑色；</li>
+<li>开始扫描根对象，包括所有 Goroutine 的栈、全局对象以及不在堆中的运行时数据结构，扫描 Goroutine 栈期间会<strong>暂停当前处理器；</strong></li>
+<li>依次处理灰色队列中的对象，将对象标记成黑色并将它们指向的对象标记成灰色；</li>
+<li>使用分布式的终止算法检查剩余的工作，发现标记阶段完成后进入标记终止阶段；</li>
+</ol>
+</li>
+<li>标记终止<ol>
+<li><strong>暂停程序、</strong> 将状态切换至 _GCmarktermination 并关闭辅助标记的用户程序；</li>
+<li>清理处理器上的线程缓存；</li>
+</ol>
+</li>
+<li>清理阶段<ol>
+<li>将状态切换至 _GCoff 开始清理阶段，初始化清理状态并关闭写屏障；</li>
+<li>恢复用户程序，所有新创建的对象会标记成白色；</li>
+<li>后台并发清理所有的内存管理单元，当 Goroutine 申请新的内存管理单元时就会触发清理；</li>
+</ol>
+</li>
+</ol>
+<h5 id="触发时机"><a href="#触发时机" class="headerlink" title="触发时机"></a>触发时机</h5><p>运行时通过 runtime.gcTrigger.test 决定是否需要触发垃圾收集，满足触发垃圾收集的基本条件时：允许垃圾收集、程序没有崩溃并且没有处于垃圾收集循环，该<br>方法会有三种</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(t gcTrigger)</span></span> test() <span class="type">bool</span> &#123;</span><br><span class="line">	<span class="keyword">if</span> !memstats.enablegc || panicking != <span class="number">0</span> || gcphase != _GCoff &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">switch</span> t.kind &#123;</span><br><span class="line">	<span class="keyword">case</span> gcTriggerHeap:</span><br><span class="line">		<span class="keyword">return</span> memstats.heap_live &gt;= memstats.gc_trigger</span><br><span class="line">	<span class="keyword">case</span> gcTriggerTime:</span><br><span class="line">		<span class="keyword">if</span> gcpercent &lt; <span class="number">0</span> &#123;</span><br><span class="line">			<span class="keyword">return</span> <span class="literal">false</span></span><br><span class="line">		&#125;</span><br><span class="line">		lastgc := <span class="type">int64</span>(atomic.Load64(&amp;memstats.last_gc_nanotime))</span><br><span class="line">		<span class="keyword">return</span> lastgc != <span class="number">0</span> &amp;&amp; t.now-lastgc &gt; forcegcperiod</span><br><span class="line">	<span class="keyword">case</span> gcTriggerCycle:</span><br><span class="line">		<span class="keyword">return</span> <span class="type">int32</span>(t.n-work.cycles) &gt; <span class="number">0</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>gcTriggerHeap 堆内存的分配达到控制器计算的触发堆大小；默认是达到上一次垃圾收集的2倍</li>
+<li>gcTriggerTime 如果一定时间内没有触发，就会触发新的循环，默认是2分钟</li>
+<li>gcTriggerCycle 如果当前没有开启垃圾收集，则触发新的循环</li>
+</ol>
+<ul>
+<li>runtime.sysmon 和 runtime.forcegchelper — 后台运行定时检查和垃圾收集；</li>
+<li>runtime.GC — 用户程序手动触发垃圾收集；</li>
+<li>runtime.mallocgc — 申请内存时根据堆大小触发垃圾收集；</li>
+</ul>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20221101114053.png"></p>
+<h5 id="后台触发"><a href="#后台触发" class="headerlink" title="后台触发"></a>后台触发</h5><p>运行时会在应用程序启动时在后台开启一个用于强制触发垃圾收集的 Goroutine，该 Goroutine 的职责非常简单 — 调用 runtime.gcStart 尝试启动新一轮的垃圾收集，<br>为了减少对计算资源的占用，该 Goroutine 会在循环中调用 runtime.goparkunlock <strong>主动陷入休眠</strong>等待其他 Goroutine 的唤醒，runtime.forcegchelper 在大多数时间都是陷入休眠的，<br>但是它会被系统监控器 runtime.sysmon 在满足垃圾收集条件时唤醒</p>
+<p>系统监控在每个循环中都会主动构建一个 runtime.gcTrigger 并检查垃圾收集的触发条件是否满足，如果满足条件，系统监控会将 runtime.forcegc 状态中持有的 Goroutine 加入全局队列等待调度器的调度。</p>
+<h5 id="手动触发"><a href="#手动触发" class="headerlink" title="手动触发"></a>手动触发</h5><p>用户程序会通过 runtime.GC 函数在程序运行期间主动通知运行时执行，该方法在调用时会<strong>阻塞调用方直到当前垃圾收集循环完成</strong>，在垃圾收集期间也可能会通过 STW 暂停整个程序</p>
+<h5 id="申请内存"><a href="#申请内存" class="headerlink" title="申请内存"></a>申请内存</h5><p>运行时会将堆上的对象按大小分成微对象、小对象和大对象三类，这三类对象的创建都可能会触发新的垃圾收集循环</p>
+<ol>
+<li>当前线程的内存管理单元中不存在空闲空间时，创建微对象和小对象需要从中心缓存或者页堆中获取新的管理单元，这时就可能触发垃圾收集；</li>
+<li>当用户程序申请分配 32KB 以上的大对象时，一定会尝试触发垃圾收集；</li>
+</ol>
+
                 
             </div>
             <hr/>
