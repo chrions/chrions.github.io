@@ -364,8 +364,7 @@
         <div class="card-content article-card-content">
             <div id="articleContent">
                 <p>Go语言中常见的同步原语有 sync.Mutex、sync.RWMutex、sync.WaitGroup、sync.Once 和 sync.Cond ，这些基本原语提供了较为基础的同步功能，<br>但是它们是一种相对原始的同步机制，在多数情况下，我们都应该使用抽象层级更高的 Channel 实现同步。</p>
-<p>###Mutex</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Mutex <span class="keyword">struct</span> &#123;</span><br><span class="line">	state <span class="type">int32</span> <span class="comment">//互斥锁的状态</span></span><br><span class="line">	sema  <span class="type">uint32</span> <span class="comment">//信号量，用来控制等待的goroutine 的阻塞，休眠，唤醒</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="Mutex"><a href="#Mutex" class="headerlink" title="Mutex"></a>Mutex</h3><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Mutex <span class="keyword">struct</span> &#123;</span><br><span class="line">	state <span class="type">int32</span> <span class="comment">//互斥锁的状态</span></span><br><span class="line">	sema  <span class="type">uint32</span> <span class="comment">//信号量，用来控制等待的goroutine 的阻塞，休眠，唤醒</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <p>上述两个加起来只占8字节空间的结构体表示了 Go 语言中的互斥锁。</p>
 <p>state表示Mutex的状态，是32位的整型变量，内部实现时把该变量分成四份，用于记录Mutex的四种状态</p>
@@ -375,7 +374,7 @@
 <p><strong>Woken:</strong> 表示是否有协程已被唤醒，0：没有协程唤醒 1：已有协程唤醒，正在加锁过程中。 </p>
 <p><strong>Starving:</strong> 表示该Mutex是否处于饥饿状态，0：没有饥饿 1：饥饿状态，说明有协程阻塞了超过1ms。</p>
 <p><strong>Waiter:</strong> 表示阻塞等待锁的协程个数，协程解锁时根据此值来判断是否需要释放信号量。</p>
-<p>####自旋<br>加锁时，如果当前Locked位为1，说明该锁当前由其他协程持有，尝试加锁的协程<strong>并不是马上转入阻塞</strong>，而是会持续的探测Locked位是否变为0，这个过程即为自旋过程。</p>
+<h4 id="自旋"><a href="#自旋" class="headerlink" title="自旋"></a>自旋</h4><p>加锁时，如果当前Locked位为1，说明该锁当前由其他协程持有，尝试加锁的协程<strong>并不是马上转入阻塞</strong>，而是会持续的探测Locked位是否变为0，这个过程即为自旋过程。</p>
 <p>自旋时间很短，但如果在自旋过程中发现锁已被释放，那么协程可以立即获取锁，自旋的好处是，当加锁失败时不必立即转入阻塞，有一定机会获取到锁，这样可以<strong>避免协程的切换。</strong></p>
 <p>自旋对应于CPU的”PAUSE”指令，CPU对该指令什么都不做，相当于<strong>CPU空转</strong>，对程序而言相当于sleep了一小段时间，时间非常短，当前实现是30个时钟周期。<br>自旋过程中会持续探测Locked是否变为0，连续两次探测间隔就是执行这些PAUSE指令，它不同于sleep，不需要将协程转为睡眠状态。</p>
 <h5 id="自旋条件"><a href="#自旋条件" class="headerlink" title="自旋条件"></a>自旋条件</h5><p>协程自旋会空转CPU，无限制的自旋将会给CPU带来巨大压力，以至于自旋的条件比较严格：</p>
@@ -386,20 +385,20 @@
 <li>协程调度机制中的Process数量要大于1，比如使用GOMAXPROCS()将处理器设置为1就不能启用自旋</li>
 <li>当前机器上至少存在一个正在运行的处理器 P 并且处理的本地运行队列为空；</li>
 </ol>
-<p>####运行模式<br>互斥锁有两种运行模式：正常模式和饥饿模式。</p>
-<p>#####正常模式<br>当 mutex 调用 Unlock() 方法释放锁资源时，锁的等待者会按照先进先出的顺序获取锁，但是刚被唤起的Goroutine不会马上获得锁，<br>它需要与新到达的goroutine争夺mutex锁。因为新到达的goroutine已经在CPU 上运行了，所以被唤醒的goroutine很大概率是争夺mutex锁是失败的。<br>此时队头的Goroutine 将一直占用不到锁，导致<strong>饿死。</strong></p>
+<h4 id="运行模式"><a href="#运行模式" class="headerlink" title="运行模式"></a>运行模式</h4><p>互斥锁有两种运行模式：正常模式和饥饿模式。</p>
+<h5 id="正常模式"><a href="#正常模式" class="headerlink" title="正常模式"></a>正常模式</h5><p>当 mutex 调用 Unlock() 方法释放锁资源时，锁的等待者会按照先进先出的顺序获取锁，但是刚被唤起的Goroutine不会马上获得锁，<br>它需要与新到达的goroutine争夺mutex锁。因为新到达的goroutine已经在CPU 上运行了，所以被唤醒的goroutine很大概率是争夺mutex锁是失败的。<br>此时队头的Goroutine 将一直占用不到锁，导致<strong>饿死。</strong></p>
 <p>为了减少这种情况，一旦队头 Goroutine 在超过1ms没有获取到mutex锁，那么它就会变为饥饿模式。</p>
-<p>#####饥饿模式<br>在饥饿模式中，mutex锁会直接交给等待队列最前面的 Goroutine。新的 Goroutine 在该状态下不能获取锁、<strong>也不会进入自旋状态</strong>，它们只会在队列的末尾等待。<br>如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会切换回正常模式。</p>
+<h5 id="饥饿模式"><a href="#饥饿模式" class="headerlink" title="饥饿模式"></a>饥饿模式</h5><p>在饥饿模式中，mutex锁会直接交给等待队列最前面的 Goroutine。新的 Goroutine 在该状态下不能获取锁、<strong>也不会进入自旋状态</strong>，它们只会在队列的末尾等待。<br>如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会切换回正常模式。</p>
 <p>与饥饿模式相比，正常模式下的互斥锁能够提供更好地性能，饥饿模式的能避免 Goroutine 由于陷入等待无法获取锁而造成的高尾延时。</p>
-<p>####加锁<br>先判断state &#x3D; 0，即没有谁在占有资源，也没有阻塞等待唤起的 goroutine。则会调用 CAS 方法去尝试性占有锁，不做其他动作。</p>
+<h4 id="加锁"><a href="#加锁" class="headerlink" title="加锁"></a>加锁</h4><p>先判断state &#x3D; 0，即没有谁在占有资源，也没有阻塞等待唤起的 goroutine。则会调用 CAS 方法去尝试性占有锁，不做其他动作。</p>
 <p>如果 state !&#x3D; 0，进一步判断是否符合自旋条件</p>
 <p>当不需要自旋又或者自旋后还是得不到资源时，此时会调用 runtime_SemacquireMutex 信号量函数，将当前的 goroutine 阻塞并加入等待唤起队列里。</p>
 <p>当有锁资源释放，mutex 在唤起了队头的 goroutine 后，队头 goroutine 会尝试性的占有锁资源，而此时也有可能会和新到来的 goroutine 一起竞争。<br>当队头 goroutine 一直得不到资源时，则会进入饥饿模式，直接将锁资源交给队头 goroutine，让新来的 goroutine 阻塞并加入到等待队列的队尾里。</p>
 <p>如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会切换回正常模式。</p>
-<p>####解锁<br>当 mutex 已经被解锁了，此时再解锁会抛出异常</p>
+<h4 id="解锁"><a href="#解锁" class="headerlink" title="解锁"></a>解锁</h4><p>当 mutex 已经被解锁了，此时再解锁会抛出异常</p>
 <p>当 mutex 处于饥饿模式时，将锁的所有权交给队列中的下一个等待者，等待者会负责设置 mutexLocked 标志位；</p>
 <p>当 mutex 处于普通模式时，如果没有 Goroutine 等待锁的释放或者已经有被唤醒的 Goroutine 获得了锁，会直接返回；<br>在其他情况下会通过信号量唤醒对应的 Goroutine；</p>
-<p>###RWMutex<br>更细粒度的互斥锁，RWMutex不限制资源的并发读，但是读写，写写操作无法并行执行</p>
+<h3 id="RWMutex"><a href="#RWMutex" class="headerlink" title="RWMutex"></a>RWMutex</h3><p>更细粒度的互斥锁，RWMutex不限制资源的并发读，但是读写，写写操作无法并行执行</p>
 <table>
 <thead>
 <tr>
@@ -426,7 +425,7 @@
 <li>写操作使用 sync.RWMutex.Lock 和 sync.RWMutex.Unlock 方法；</li>
 <li>读操作使用 sync.RWMutex.RLock 和 sync.RWMutex.RUnlock 方法；</li>
 </ul>
-<p>####写锁<br><strong>写锁获取锁</strong></p>
+<h4 id="写锁"><a href="#写锁" class="headerlink" title="写锁"></a>写锁</h4><p><strong>写锁获取锁</strong></p>
 <figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> Lock() &#123;</span><br><span class="line">	rw.w.Lock()</span><br><span class="line">	r := atomic.AddInt32(&amp;rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders</span><br><span class="line">	<span class="keyword">if</span> r != <span class="number">0</span> &amp;&amp; atomic.AddInt32(&amp;rw.readerWait, r) != <span class="number">0</span> &#123;</span><br><span class="line">		runtime_SemacquireMutex(&amp;rw.writerSem, <span class="literal">false</span>, <span class="number">0</span>)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>当有Goroutine调用sync.RWMutex.Lock时，先调用sync.Mutex.Lock阻塞后续写操作，其他 Goroutine 在获取写锁时会进入自旋或者休眠；</p>
 <p>调用sync&#x2F;atomic.AddInt32,将 readerCount 变为负数，即 readerCount &#x3D; readerCount - rwmutexMaxReader，同时让readerWait 变量记录它前面有多少个 reader；<br>如果有新来的 reader，发现 readerCount 是负数，就会直接去后面排队；</p>
@@ -436,15 +435,47 @@
 <p>首先调用 sync&#x2F;atomic.AddInt32 函数将 readerCount 变回正数</p>
 <p>通过 for 循环释放所有因为获取读锁而陷入等待的 Goroutine：</p>
 <p>调用 sync.Mutex.Unlock 释放写锁；</p>
-<p>####读锁<br><strong>获取锁</strong></p>
+<h4 id="读锁"><a href="#读锁" class="headerlink" title="读锁"></a>读锁</h4><p><strong>读锁获取锁</strong></p>
 <figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> RLock() &#123;</span><br><span class="line">	<span class="keyword">if</span> atomic.AddInt32(&amp;rw.readerCount, <span class="number">1</span>) &lt; <span class="number">0</span> &#123;</span><br><span class="line">		runtime_SemacquireMutex(&amp;rw.readerSem, <span class="literal">false</span>, <span class="number">0</span>)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>如果该方法返回负数 — 其他 Goroutine 获得了写锁，当前 Goroutine 就会调用 runtime.sync_runtime_SemacquireMutex 陷入休眠等待锁的释放；</p>
 <p>如果该方法的结果为非负数 — 没有 Goroutine 获得写锁，当前方法会成功返回；</p>
-<p><strong>释放锁</strong></p>
+<p><strong>读锁释放锁</strong></p>
 <figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> RUnlock() &#123;</span><br><span class="line">	<span class="keyword">if</span> r := atomic.AddInt32(&amp;rw.readerCount, <span class="number">-1</span>); r &lt; <span class="number">0</span> &#123;</span><br><span class="line">		rw.rUnlockSlow(r)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>该方法会先减少正在读资源的 readerCount 整数，根据 sync&#x2F;atomic.AddInt32 的返回值不同会分别进行处理：</p>
 <p>如果返回值大于等于零，读锁直接解锁成功；</p>
 <p>如果返回值小于零表示有一个正在执行的写操作，此时RWMutex会减少获取锁的写操作等待的读操作数 readerWait 并在所有读操作都被释放之后触发写操作的信号量 writerSem，<br>该信号量被触发时，调度器就会唤醒尝试获取写锁的 Goroutine。</p>
+<p>读写互斥锁提供的功能比较复杂，但是他建立在互斥锁上，所以实现更为简单，总结如下：</p>
+<ul>
+<li>当尝试获取写锁时<ul>
+<li>每次 RWMutex.RUnlock  都会将readCount减1，当它归零时该Goroutine会获得写锁</li>
+<li>将 readerCount 减少 rwmutexMaxReaders 个数以阻塞后续的读操作</li>
+</ul>
+</li>
+<li>调用 RWMutex.Unlock 释放写锁时，会先通知所有的读操作，然后才会释放持有的互斥锁</li>
+</ul>
+<h3 id="Cond"><a href="#Cond" class="headerlink" title="Cond"></a>Cond</h3><p>sync.Cond 可以让一组Goroutine都在满足特定条件时被唤醒，每一个 sync.Cond 结构体在初始化时都需要传入一个互斥锁</p>
+<p>可以看如下使用例子</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	c := sync.NewCond(&amp;sync.Mutex&#123;&#125;)</span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; <span class="number">10</span>; i++ &#123;</span><br><span class="line">		<span class="keyword">go</span> listen(c)</span><br><span class="line">	&#125;</span><br><span class="line">	time.Sleep(<span class="number">1</span> * time.Second)</span><br><span class="line">	<span class="keyword">go</span> broadcast(c)</span><br><span class="line"></span><br><span class="line">	ch := <span class="built_in">make</span>(<span class="keyword">chan</span> os.Signal, <span class="number">1</span>)</span><br><span class="line">	signal.Notify(ch, os.Interrupt)</span><br><span class="line">	&lt;-ch</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">broadcast</span><span class="params">(c *sync.Cond)</span></span> &#123;</span><br><span class="line">	c.L.Lock()</span><br><span class="line">	atomic.StoreInt64(&amp;status, <span class="number">1</span>)</span><br><span class="line">	c.Broadcast()</span><br><span class="line">	c.L.Unlock()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">listen</span><span class="params">(c *sync.Cond)</span></span> &#123;</span><br><span class="line">	c.L.Lock()</span><br><span class="line">	<span class="keyword">for</span> atomic.LoadInt64(&amp;status) != <span class="number">1</span> &#123;</span><br><span class="line">		c.Wait()</span><br><span class="line">	&#125;</span><br><span class="line">	fmt.Println(<span class="string">&quot;listen&quot;</span>)</span><br><span class="line">	c.L.Unlock()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上述代码同时运行了 11 个 Goroutine，这 11 个 Goroutine 分别做了不同事情：</p>
+<ul>
+<li>10 个 Goroutine 通过 sync.Cond.Wait 等待特定条件的满足；</li>
+<li>1 个 Goroutine 会调用 sync.Cond.Broadcast 唤醒所有陷入等待的 Goroutine；</li>
+</ul>
+<p>虽然都是控制并发，Cond 和 Channel 的区别是，前者可以通过Broadcast唤醒所有的等待着，而想利用 channel 实现这个方法还是不容易的</p>
+<h4 id="结构体"><a href="#结构体" class="headerlink" title="结构体"></a>结构体</h4><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Cond <span class="keyword">struct</span> &#123;</span><br><span class="line">	noCopy  noCopy <span class="comment">//保证结构体不会在编译期间拷贝；</span></span><br><span class="line">	L       Locker</span><br><span class="line">	notify  notifyList <span class="comment">//一个 Goroutine 的链表，它是实现同步机制的核心结构</span></span><br><span class="line">	checker copyChecker <span class="comment">//禁止运行期间发生的拷贝；</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="条件通知列表"><a href="#条件通知列表" class="headerlink" title="条件通知列表"></a>条件通知列表</h4><p>sync.Cond.Signal 方法会唤醒队列最前面的 Goroutine；</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Cond)</span></span> Signal() &#123;</span><br><span class="line">	c.checker.check()</span><br><span class="line">	runtime_notifyListNotifyOne(&amp;c.notify)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>sync.Cond.Broadcast 方法会唤醒队列中全部的 Goroutine；</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Cond)</span></span> Broadcast() &#123;</span><br><span class="line">	c.checker.check()</span><br><span class="line">	runtime_notifyListNotifyAll(&amp;c.notify)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Goroutine 的唤醒顺序也是按照加入队列的先后顺序，先加入的会先被唤醒，而后加入的可能 Goroutine 需要等待调度器的调度。</p>
+<p>在一般情况下，我们都会先调用 sync.Cond.Wait 陷入休眠等待满足期望条件，当满足唤醒条件时，就可以选择使用 sync.Cond.Signal 或者 sync.Cond.Broadcast 唤醒一个或者全部的 Goroutine。</p>
+<p>使用时我们也需要注意以下问题：</p>
+<ul>
+<li>sync.Cond.Wait 在调用之前一定要使用获取互斥锁，否则会触发程序崩溃；</li>
+<li>sync.Cond.Signal 唤醒的 Goroutine 都是队列最前面、等待最久的 Goroutine；</li>
+<li>sync.Cond.Broadcast 会按照一定顺序广播通知等待的全部 Goroutine；</li>
+</ul>
 
                 
             </div>
