@@ -4,8 +4,8 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="keywords" content="go语言GC解析, Blog">
-    <meta name="description" content="含泪学习go垃圾收集机制">
+    <meta name="keywords" content="go的同步原语与锁, Blog">
+    <meta name="description" content="同步原语与锁分析">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="renderer" content="webkit|ie-stand|ie-comp">
@@ -17,7 +17,7 @@
     <!-- Global site tag (gtag.js) - Google Analytics -->
 
 
-    <title>go语言GC解析 | Blog</title>
+    <title>go的同步原语与锁 | Blog</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     
 
@@ -288,12 +288,12 @@
 
 
 
-<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/20.jpg')">
+<div class="bg-cover pd-header post-cover" style="background-image: url('/medias/featureimages/18.jpg')">
     <div class="container" style="right: 0px;left: 0px;">
         <div class="row">
             <div class="col s12 m12 l12">
                 <div class="brand">
-                    <h1 class="description center-align post-title">go语言GC解析</h1>
+                    <h1 class="description center-align post-title">go的同步原语与锁</h1>
                 </div>
             </div>
         </div>
@@ -342,7 +342,7 @@
                 
                 <div class="post-date info-break-policy">
                     <i class="far fa-calendar-minus fa-fw"></i>发布日期:&nbsp;&nbsp;
-                    2022-08-16
+                    2022-11-09
                 </div>
                 
 
@@ -363,134 +363,88 @@
 
         <div class="card-content article-card-content">
             <div id="articleContent">
-                <p>要了解一个编程语言设计的精妙之处，它的垃圾回收机制一定是重中之重。 在几乎所有的现代编程语言中，垃圾收集器都是一个复杂的系统，为了在不影响用户程序的情况下回收废弃的内存，需要付出非常多的努力。</p>
-<p>go语言使用自动内存管理系统，它的垃圾回收不需要工程师主动释放，由垃圾收集机制控制。很多人对垃圾收集器的第一印象就是暂停程序（STW），随着用户程序申请的内存越来越多，系统中的垃圾与随之增多，当程序的内存占用达到一定阈值时，<br>整个程序就会暂停，垃圾收集器会扫描已经分配好的所有对象并回收不再使用的内存空间，这个过程结束后，用户程序才开始执行。早起go语言也是这种策略去回收空闲内存空间，如今的实现已经复杂很多了。</p>
-<p>用户程序会通过内存分配器在堆中申请内存，而垃圾收集器负责回收堆中的内存空间，内存分配器和垃圾收集器共同管理程序中的堆内存空间。</p>
-<h4 id="三色标记法"><a href="#三色标记法" class="headerlink" title="三色标记法"></a>三色标记法</h4><p>传统的标记清除算法让垃圾收集器从垃圾收集的根对象出发，递归遍历这些对象指向的子对象并将所有可达的对象标记为存活；标记结束后，垃圾收集器会依次遍历堆中的对象并清除其中的垃圾。整个过程需要标记对象的存活状态，用户程序在垃圾收集<br>过程中也不能执行，这就是STW。go语言为了解决原始的标记清除算法来的长时间STW，实现了<strong>三色标记</strong>算法。 </p>
-<p>三色标记算法将程序中的对象分成白色、黑色和灰色三类：</p>
-<ul>
-<li>白色对象 — 潜在的垃圾，其内存可能会被垃圾收集器回收；</li>
-<li>黑色对象 — 活跃的对象，包括不存在任何引用外部指针的对象以及从根对象可达的对象；</li>
-<li>灰色对象 — 活跃的对象，因为存在指向白色对象的外部指针，垃圾收集器会扫描这些对象的子对象；</li>
-</ul>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image@master/WeChatdcc8324b26b184ac87ef8457cea10cb7.png"></p>
-<p>垃圾收集器开始工作时，程序中是不存在任何黑色对象，垃圾收集的根对象会被标记为灰色，<strong>垃圾收集器只会从灰色对象集合中取出对象开始扫描</strong>， 当灰色对象集合中没有任何对象时，标记阶段就会停止</p>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image@master/20220816231335.png"></p>
-<p>三色标记垃圾收集器的工作原理很简单，具体归纳为以下几个步骤：</p>
-<ol>
-<li>从灰色对象集合中选出一个灰色对象将其标记成黑色</li>
-<li>将黑色对象指向的所有对象都标记成灰色，这样保证该对象和被该对象引用的对象都不会被回收</li>
-<li>重复上述两个步骤，知道对象图中不存在灰色对象</li>
-</ol>
-<p>当三色标记清除的标记阶段结束后，应用程序的堆中就不存在任何灰色对象了，我们只能看到<strong>黑色的存活对象</strong>和<strong>白色的垃圾对象</strong>。垃圾回收器将回收这些白色的垃圾</p>
-<p>下图是使用三色标记法标记结束之后的堆内存，只有对象D为待回收对象</p>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image@master/20220816232111.png"></p>
-<p>因为用户程序可能在标记执行过程中修改对象的指针，所以三色标记清除算法本身是不可以并发或者增量执行的，它仍然需要STW。比如在标记过程中，用户程序建立了从A到D的引用，但是程序已经不存在灰色对象了，所以对象D会被垃圾收集器<br>错误地回收。本来不应该被回收的对象却被回收了，这在内存管理中是非常严重的错误，我们将这种错误称为<strong>悬挂指针</strong>，即指针没有指向特定类型的合法对象，影响了内存的安全性，想要并发或者增量地标记对象还是需要使用屏障技术。</p>
-<h4 id="屏障技术"><a href="#屏障技术" class="headerlink" title="屏障技术"></a>屏障技术</h4><p>为了能让三色标记清除算法能够并行或者增量执行，go语言加入了屏障技术，它是一种屏障指令，能够保证内存操作的顺序性，<strong>在内存屏障前执行的操作一定会先于内存屏障后执行的操作。</strong></p>
-<p>想要在并发或者增量的标记算法中保证正确性，我们需要达成以下两种三色不变性（Tri-color invariant）中的一种：</p>
-<ul>
-<li>强三色不变性 — 黑色对象不会指向白色对象，只会指向灰色对象或者黑色对象；</li>
-<li>弱三色不变性 — 黑色对象指向的白色对象必须包含一条从灰色对象经由多个白色对象的可达路径</li>
-</ul>
-<p>垃圾收集中的屏障技术更像是一个钩子方法，它是在用户程序读取对象、创建新对象以及更新对象指针时执行的一段代码，根据操作类型的不同，<br>我们可以将它们分成<strong>读屏障（Read barrier）和写屏障（Write barrier）</strong> 两种，因为读屏障需要在读操作中加入代码片段，对用户程序的性能影响很大，所以编程语言往往都会采用写屏障保证三色不变性。</p>
-<h5 id="插入写屏障"><a href="#插入写屏障" class="headerlink" title="插入写屏障"></a>插入写屏障</h5><p>插入写屏障避免了前面提到的强三色不变性，即防止黑色对象指向白色对象。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 添加下游对象的函数, 当前下游对象slot, 新下游对象ptr</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">DijkstraWritePointer</span><span class="params">(slot *unsafe.Pointer, ptr unsafe.Pointer)</span></span> &#123;</span><br><span class="line">    <span class="comment">// 1) 将新下游对象标记为灰色</span></span><br><span class="line">    shade(ptr)</span><br><span class="line">    <span class="comment">// 2) 当前下游对象slot = 新下游对象ptr</span></span><br><span class="line">    *slot = ptr</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 场景一：A之前没有下游, 新添加一个下游对象B, B被标记为灰色</span></span><br><span class="line">A.DijkstraWritePointer(<span class="literal">nil</span>, B)</span><br><span class="line"><span class="comment">// 场景二：A将下游对象C更换为B, B被标记为灰色</span></span><br><span class="line">A.DijkstraWritePointer(C, B)</span><br></pre></td></tr></table></figure>
-<p>上述插入写屏障的为代码很好理解，每当执行类似 *slot &#x3D; ptr 的表达式时，我们会执行上述写屏障通过 shade 函数尝试改变指针的颜色。如果 ptr 指针是白色的，那么该函数会将该对象设置成灰色，其他情况则保持不变。</p>
-<p>一个垃圾收集器和用户程序交替运行的场景中会出现如图所示的标记过程：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image@master/20220817223433.png"></p>
-<ol>
-<li>垃圾收集器将根对象指向 A 对象标记成黑色并将 A 对象指向的对象 B 标记成灰色；</li>
-<li>用户程序修改 A 对象的指针，将原本指向 B 对象的指针指向 C 对象，这时触发写屏障将 C 对象标记成灰色；</li>
-<li>垃圾收集器依次遍历程序中的其他灰色对象，将它们分别标记成黑色；</li>
-</ol>
-<p>插入写屏障是一种相对保守的屏障技术，它会将有存活可能的对象都标记成灰色以满足强三色不变性。在如上所示的垃圾收集过程中，实际上不再存活的 B 对象最后没有被回收；<br>而如果我们在第二和第三步之间将指向 C 对象的指针改回指向 B，垃圾收集器仍然认为 C 对象是存活的，这些被错误标记的垃圾对象只有在下一个循环才会被回收。</p>
-<p>插入写屏障还有一个明显的缺点，因为栈上的对象在垃圾收集中也会被认为是根对象，所以为了保证内存的安全，我们必须为栈上的对象增加写屏障或者在标记阶段完成重新对栈上的对象进行扫描，<br>这两种方法各有各的缺点，前者会大幅度增加写入指针的额外开销，后者重新扫描栈对象时需要暂停程序，垃圾收集算法的设计者需要在这两者之间做出权衡。</p>
-<h5 id="删除写屏障"><a href="#删除写屏障" class="headerlink" title="删除写屏障"></a>删除写屏障</h5><p>又称为基于起始快照的屏障，它是为了避免前面提到的弱三色不变性，防止丢失灰色对象到白色对象的可达路径。<br>当用户程序执行<em>slot &#x3D; ptr时（即令slot指向了ptr），我们会将当前下游对象</em>slot标记为灰色。一句话解释就是当删除对象A指向对象B的指针时，那么将被删除的对象标记为灰色。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 添加下游对象的函数, 当前下游对象slot, 新下游对象ptr</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">YuasaWritePointer</span><span class="params">(slot *unsafe.Pointer, ptr unsafe.Pointer)</span></span> &#123;</span><br><span class="line">    <span class="comment">// 1) 将当前下游对象标记为灰色</span></span><br><span class="line">    shade(*slot)</span><br><span class="line">    <span class="comment">// 2) 当前下游对象slot = 新下游对象ptr</span></span><br><span class="line">    *slot = ptr</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 场景一：B被A删除, 将B标记为灰色</span></span><br><span class="line">A.添加下游对象(B, <span class="literal">nil</span>)</span><br><span class="line"><span class="comment">// 场景二：B被A删除, 将B标记为灰色</span></span><br><span class="line">A.添加下游对象(B, C)</span><br></pre></td></tr></table></figure>
+                <p>Go语言中常见的同步原语有 sync.Mutex、sync.RWMutex、sync.WaitGroup、sync.Once 和 sync.Cond ，这些基本原语提供了较为基础的同步功能，<br>但是它们是一种相对原始的同步机制，在多数情况下，我们都应该使用抽象层级更高的 Channel 实现同步。</p>
+<p>###Mutex</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Mutex <span class="keyword">struct</span> &#123;</span><br><span class="line">	state <span class="type">int32</span> <span class="comment">//互斥锁的状态</span></span><br><span class="line">	sema  <span class="type">uint32</span> <span class="comment">//信号量，用来控制等待的goroutine 的阻塞，休眠，唤醒</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>假设我们在应用程序中使用 Yuasa 提出的删除写屏障，在一个垃圾收集器和用户程序交替运行的场景中会出现如上图所示的标记过程：</p>
+<p>上述两个加起来只占8字节空间的结构体表示了 Go 语言中的互斥锁。</p>
+<p>state表示Mutex的状态，是32位的整型变量，内部实现时把该变量分成四份，用于记录Mutex的四种状态</p>
+<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20221109160334.png"></p>
+<p>默认情况下，互斥锁的所有状态位都是 0</p>
+<p><strong>Locked:</strong> 表示该Mutex是否已被锁定，0：没有锁定 1：已被锁定。</p>
+<p><strong>Woken:</strong> 表示是否有协程已被唤醒，0：没有协程唤醒 1：已有协程唤醒，正在加锁过程中。 </p>
+<p><strong>Starving:</strong> 表示该Mutex是否处于饥饿状态，0：没有饥饿 1：饥饿状态，说明有协程阻塞了超过1ms。</p>
+<p><strong>Waiter:</strong> 表示阻塞等待锁的协程个数，协程解锁时根据此值来判断是否需要释放信号量。</p>
+<p>####自旋<br>加锁时，如果当前Locked位为1，说明该锁当前由其他协程持有，尝试加锁的协程<strong>并不是马上转入阻塞</strong>，而是会持续的探测Locked位是否变为0，这个过程即为自旋过程。</p>
+<p>自旋时间很短，但如果在自旋过程中发现锁已被释放，那么协程可以立即获取锁，自旋的好处是，当加锁失败时不必立即转入阻塞，有一定机会获取到锁，这样可以<strong>避免协程的切换。</strong></p>
+<p>自旋对应于CPU的”PAUSE”指令，CPU对该指令什么都不做，相当于<strong>CPU空转</strong>，对程序而言相当于sleep了一小段时间，时间非常短，当前实现是30个时钟周期。<br>自旋过程中会持续探测Locked是否变为0，连续两次探测间隔就是执行这些PAUSE指令，它不同于sleep，不需要将协程转为睡眠状态。</p>
+<h5 id="自旋条件"><a href="#自旋条件" class="headerlink" title="自旋条件"></a>自旋条件</h5><p>协程自旋会空转CPU，无限制的自旋将会给CPU带来巨大压力，以至于自旋的条件比较严格：</p>
 <ol>
-<li>垃圾收集器将根对象指向 A 对象标记成黑色并将 A 对象指向的对象 B 标记成灰色；</li>
-<li>用户程序将 A 对象原本指向 B 的指针指向 C，触发删除写屏障，但是因为 B 对象已经是灰色的，所以不做改变；</li>
-<li><strong>用户程序将 B 对象原本指向 C 的指针删除，触发删除写屏障，白色的 C 对象被涂成灰色；</strong></li>
-<li>垃圾收集器依次遍历程序中的其他灰色对象，将它们分别标记成黑色</li>
+<li>只有普通模式下才能进入自旋</li>
+<li>自旋次数要足够小，通常为4，即自旋最多4次</li>
+<li>必须是多核处理器，否则自旋就没有意义</li>
+<li>协程调度机制中的Process数量要大于1，比如使用GOMAXPROCS()将处理器设置为1就不能启用自旋</li>
+<li>当前机器上至少存在一个正在运行的处理器 P 并且处理的本地运行队列为空；</li>
 </ol>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image@master/20220817234906.png"></p>
-<h4 id="增量和并发"><a href="#增量和并发" class="headerlink" title="增量和并发"></a>增量和并发</h4><p>传统的垃圾收集算法会在垃圾收集的执行期间暂停应用程序，一旦触发垃圾收集，垃圾收集器会抢占 CPU 的使用权占据大量的计算资源以完成标记和清除工作，然而很多追求实时的应用程序无法接受长时间的 STW。<br>为了减少应用程序暂停的最长时间和垃圾收集的总暂停时间，我们使用一下的策略优化垃圾收集器</p>
-<ul>
-<li>增量垃圾收集 — 增量地标记和清除垃圾，降低应用程序暂停的最长时间；</li>
-<li>并发垃圾收集 — 利用多核的计算资源，在用户程序执行时并发标记和清除垃圾；</li>
-</ul>
-<p>增量和并发两种方式都可以与用户程序交替运行，所以我们需要使用<strong>屏障技术</strong>保证垃圾收集的正确性；与此同时，应用程序也不能等到内存溢出时触发垃圾收集，因为当内存不足时，应用程序已经无法分配内存，这与直接暂停程序没有什么区别，增量和并发的垃圾收集需要提前触发并在内存不足前完成整个循环，避免程序的长时间暂停。</p>
-<h5 id="增量收集器"><a href="#增量收集器" class="headerlink" title="增量收集器"></a>增量收集器</h5><p>它可以将原本时间较长的暂停时间切分成多个更小的 GC 时间片，虽然从垃圾收集开始到结束的时间更长了，但是这也减少了应用程序暂停的最大时间：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/541666765675_.pic.jpg"></p>
-<p>增量式的垃圾收集需要与三色标记法一起使用，为了保证垃圾收集的正确性，我们需要在垃圾收集开始前打开写屏障，这样用户程序修改内存都会先经过写屏障的处理，保证了堆内存中对象关系的强三色不变性或者弱三色不变性。</p>
-<p>增量式的垃圾收集能够减少最大的程序暂停时间，但是增量式收集也会增加一次 GC 循环的总时间，在垃圾收集期间，因为写屏障的影响用户程序也需要承担额外的计算开销，所以增量式的垃圾收集也不是只带来好处的，但是总体来说还是利大于弊。</p>
-<h5 id="并发收集器"><a href="#并发收集器" class="headerlink" title="并发收集器"></a>并发收集器</h5><p>并发的垃圾收集不仅能够减少程序的最长暂停时间，还能减少整个垃圾收集阶段的时间，通过开启读写屏障、<strong>利用多核优势与用户程序并行执行</strong>，并发垃圾收集器确实能够减少垃圾收集对应用程序的影响：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20221026145125.png"></p>
-<p>虽然并发收集器能够与用户程序一起运行，但是并不是所有阶段都可以与用户程序一起运行，部分阶段还是需要暂停用户程序的</p>
-<p>不过与传统的算法相比，并发的垃圾收集可以将能够并发执行的工作尽量并发执行；当然，因为读写屏障的引入，并发的垃圾收集器也一定会带来额外开销，不仅会增加垃圾收集的总时间，还会影响用户程序</p>
-<h5 id="go语言的并发收集"><a href="#go语言的并发收集" class="headerlink" title="go语言的并发收集"></a>go语言的并发收集</h5><p>Go 语言的并发垃圾收集器会在扫描对象之前暂停程序做一些标记对象的准备工作，其中包括<strong>启动后台标记的垃圾收集器以及开启写屏障，</strong> 如果在后台执行的垃圾收集器不够快，<br>应用程序申请内存的速度超过预期， 运行时会让申请内存的应用程序辅助完成垃圾收集的扫描阶段，在标记和标记终止阶段结束之后就会进入异步的清理阶段，将不用的内存增量回收。</p>
-<p>v1.6版本引入了去中心化的垃圾收集协调机制，将垃圾收集器变成一个显式的状态机，任意的 Goroutine 都可以调用方法触发状态的迁移，常见的状态迁移方法包括以下几个</p>
-<ul>
-<li>runtime.gcStart — 从 _GCoff 转换至 _GCmark 阶段，进入并发标记阶段并打开写屏障；</li>
-<li>runtime.gcMarkDone — 如果所有可达对象都已经完成扫描，调用 runtime.gcMarkTermination；</li>
-<li>runtime.gcMarkTermination — 从 _GCmark 转换 _GCmarktermination 阶段，进入标记终止阶段并在完成后进入 _GCoff；</li>
-</ul>
-<p>STW 的垃圾收集器虽然需要暂停程序，但是它能够有效地控制堆内存的大小，Go 语言运行时的默认配置会在堆内存达到上一次垃圾收集的 2 倍时，触发新一轮的垃圾收集，这个行为可以通过环境变量 GOGC 调整，在默认情况下它的值为 100，即增长 100% 的堆内存才会触发 GC。</p>
-<h4 id="混合写屏障"><a href="#混合写屏障" class="headerlink" title="混合写屏障"></a>混合写屏障</h4><p>在v1.7之前，运行时会使用插入写屏障保证强三色不变性，但运行时不会在所有的垃圾收集根对象上开启插入写屏障。因为应用程序可能包含成百上千的 Goroutine，而垃圾收集的根对象一般包括全局变量和栈对象，<br>如果运行时需要在几百个 Goroutine 的栈上都开启写屏障，会带来巨大的额外开销，所以 Go 团队在实现上选择了在标记阶段完成时<strong>暂停程序、将所有栈对象标记为灰色并重新扫描，</strong> 在活跃 Goroutine 非常多的程序中，<br>重新扫描的过程需要占用 10 ~ 100ms 的时间。</p>
-<p>在v1.8版本中组合了插入写屏障和删除写屏障构成了混合写屏障，该写屏障<strong>会将被覆盖的对象标记成灰色并在当前栈没有扫描时将新对象也标记成灰色：</strong></p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">writePointer(slot, ptr):</span><br><span class="line">    shade(*slot)</span><br><span class="line">    <span class="keyword">if</span> current stack is grey:</span><br><span class="line">        shade(ptr)</span><br><span class="line">    *slot = ptr</span><br></pre></td></tr></table></figure>
-<p>为了移除栈的重扫描过程，除了引入混合写屏障之外，在垃圾收集的标记阶段，我们还需要将<strong>创建的所有新对象都标记成黑色</strong>，防止新分配的栈内存和堆内存中的对象被错误地回收，<br>因为栈内存在标记阶段最终都会变为黑色，所以不再需要重新扫描栈空间。</p>
-<h5 id="实现原理"><a href="#实现原理" class="headerlink" title="实现原理"></a>实现原理</h5><p>Go 语言的垃圾收集可以分成<strong>清除终止、标记、标记终止和清除</strong> 四个不同阶段</p>
-<ol>
-<li>清理终止阶段<ol>
-<li><strong>暂停程序</strong>，所以的处理器在此时会进入安全点</li>
-<li>如果当前垃圾收集循环是强制触发的，我们还需要处理还未被清理的内存管理单元；</li>
-</ol>
-</li>
-<li>标记阶段<ol>
-<li>将状态切换至 _GCmark、开启写屏障，用户程序协助将根对象入队</li>
-<li>恢复执行程序，标记进程和用于协助的用户程序会开始<strong>并发标记内存中的对象</strong>，<br>写屏障会将被覆盖的指针和新指针都标记成灰色，而所有新创建的对象都会被直接标记成黑色；</li>
-<li>开始扫描根对象，包括所有 Goroutine 的栈、全局对象以及不在堆中的运行时数据结构，扫描 Goroutine 栈期间会<strong>暂停当前处理器；</strong></li>
-<li>依次处理灰色队列中的对象，将对象标记成黑色并将它们指向的对象标记成灰色；</li>
-<li>使用分布式的终止算法检查剩余的工作，发现标记阶段完成后进入标记终止阶段；</li>
-</ol>
-</li>
-<li>标记终止<ol>
-<li><strong>暂停程序、</strong> 将状态切换至 _GCmarktermination 并关闭辅助标记的用户程序；</li>
-<li>清理处理器上的线程缓存；</li>
-</ol>
-</li>
-<li>清理阶段<ol>
-<li>将状态切换至 _GCoff 开始清理阶段，初始化清理状态并关闭写屏障；</li>
-<li>恢复用户程序，所有新创建的对象会标记成白色；</li>
-<li>后台并发清理所有的内存管理单元，当 Goroutine 申请新的内存管理单元时就会触发清理；</li>
-</ol>
-</li>
-</ol>
-<h5 id="触发时机"><a href="#触发时机" class="headerlink" title="触发时机"></a>触发时机</h5><p>运行时通过 runtime.gcTrigger.test 决定是否需要触发垃圾收集，满足触发垃圾收集的基本条件时：允许垃圾收集、程序没有崩溃并且没有处于垃圾收集循环，该<br>方法会有三种</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(t gcTrigger)</span></span> test() <span class="type">bool</span> &#123;</span><br><span class="line">	<span class="keyword">if</span> !memstats.enablegc || panicking != <span class="number">0</span> || gcphase != _GCoff &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">switch</span> t.kind &#123;</span><br><span class="line">	<span class="keyword">case</span> gcTriggerHeap:</span><br><span class="line">		<span class="keyword">return</span> memstats.heap_live &gt;= memstats.gc_trigger</span><br><span class="line">	<span class="keyword">case</span> gcTriggerTime:</span><br><span class="line">		<span class="keyword">if</span> gcpercent &lt; <span class="number">0</span> &#123;</span><br><span class="line">			<span class="keyword">return</span> <span class="literal">false</span></span><br><span class="line">		&#125;</span><br><span class="line">		lastgc := <span class="type">int64</span>(atomic.Load64(&amp;memstats.last_gc_nanotime))</span><br><span class="line">		<span class="keyword">return</span> lastgc != <span class="number">0</span> &amp;&amp; t.now-lastgc &gt; forcegcperiod</span><br><span class="line">	<span class="keyword">case</span> gcTriggerCycle:</span><br><span class="line">		<span class="keyword">return</span> <span class="type">int32</span>(t.n-work.cycles) &gt; <span class="number">0</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>####运行模式<br>互斥锁有两种运行模式：正常模式和饥饿模式。</p>
+<p>#####正常模式<br>当 mutex 调用 Unlock() 方法释放锁资源时，锁的等待者会按照先进先出的顺序获取锁，但是刚被唤起的Goroutine不会马上获得锁，<br>它需要与新到达的goroutine争夺mutex锁。因为新到达的goroutine已经在CPU 上运行了，所以被唤醒的goroutine很大概率是争夺mutex锁是失败的。<br>此时队头的Goroutine 将一直占用不到锁，导致<strong>饿死。</strong></p>
+<p>为了减少这种情况，一旦队头 Goroutine 在超过1ms没有获取到mutex锁，那么它就会变为饥饿模式。</p>
+<p>#####饥饿模式<br>在饥饿模式中，mutex锁会直接交给等待队列最前面的 Goroutine。新的 Goroutine 在该状态下不能获取锁、<strong>也不会进入自旋状态</strong>，它们只会在队列的末尾等待。<br>如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会切换回正常模式。</p>
+<p>与饥饿模式相比，正常模式下的互斥锁能够提供更好地性能，饥饿模式的能避免 Goroutine 由于陷入等待无法获取锁而造成的高尾延时。</p>
+<p>####加锁<br>先判断state &#x3D; 0，即没有谁在占有资源，也没有阻塞等待唤起的 goroutine。则会调用 CAS 方法去尝试性占有锁，不做其他动作。</p>
+<p>如果 state !&#x3D; 0，进一步判断是否符合自旋条件</p>
+<p>当不需要自旋又或者自旋后还是得不到资源时，此时会调用 runtime_SemacquireMutex 信号量函数，将当前的 goroutine 阻塞并加入等待唤起队列里。</p>
+<p>当有锁资源释放，mutex 在唤起了队头的 goroutine 后，队头 goroutine 会尝试性的占有锁资源，而此时也有可能会和新到来的 goroutine 一起竞争。<br>当队头 goroutine 一直得不到资源时，则会进入饥饿模式，直接将锁资源交给队头 goroutine，让新来的 goroutine 阻塞并加入到等待队列的队尾里。</p>
+<p>如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会切换回正常模式。</p>
+<p>####解锁<br>当 mutex 已经被解锁了，此时再解锁会抛出异常</p>
+<p>当 mutex 处于饥饿模式时，将锁的所有权交给队列中的下一个等待者，等待者会负责设置 mutexLocked 标志位；</p>
+<p>当 mutex 处于普通模式时，如果没有 Goroutine 等待锁的释放或者已经有被唤醒的 Goroutine 获得了锁，会直接返回；<br>在其他情况下会通过信号量唤醒对应的 Goroutine；</p>
+<p>###RWMutex<br>更细粒度的互斥锁，RWMutex不限制资源的并发读，但是读写，写写操作无法并行执行</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>读</th>
+<th>写</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>读</td>
+<td>Y</td>
+<td>N</td>
+</tr>
+<tr>
+<td>写</td>
+<td>N</td>
+<td>N</td>
+</tr>
+</tbody></table>
+<p>RWMutex 的结构体如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> RWMutex <span class="keyword">struct</span> &#123;</span><br><span class="line">	w           Mutex <span class="comment">//互斥锁</span></span><br><span class="line">	writerSem   <span class="type">uint32</span> <span class="comment">//用于writer等待读完成排队的信号量</span></span><br><span class="line">	readerSem   <span class="type">uint32</span> <span class="comment">//用于reader等待写完成排队的信号量</span></span><br><span class="line">	readerCount <span class="type">int32</span> <span class="comment">//读锁的计数器</span></span><br><span class="line">	readerWait  <span class="type">int32</span> <span class="comment">//等待读锁释放的数量</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<ol>
-<li>gcTriggerHeap 堆内存的分配达到控制器计算的触发堆大小；默认是达到上一次垃圾收集的2倍</li>
-<li>gcTriggerTime 如果一定时间内没有触发，就会触发新的循环，默认是2分钟</li>
-<li>gcTriggerCycle 如果当前没有开启垃圾收集，则触发新的循环</li>
-</ol>
 <ul>
-<li>runtime.sysmon 和 runtime.forcegchelper — 后台运行定时检查和垃圾收集；</li>
-<li>runtime.GC — 用户程序手动触发垃圾收集；</li>
-<li>runtime.mallocgc — 申请内存时根据堆大小触发垃圾收集；</li>
+<li>写操作使用 sync.RWMutex.Lock 和 sync.RWMutex.Unlock 方法；</li>
+<li>读操作使用 sync.RWMutex.RLock 和 sync.RWMutex.RUnlock 方法；</li>
 </ul>
-<p><img src="https://cdn.jsdelivr.net/gh/chrions/image/20221101114053.png"></p>
-<h5 id="后台触发"><a href="#后台触发" class="headerlink" title="后台触发"></a>后台触发</h5><p>运行时会在应用程序启动时在后台开启一个用于强制触发垃圾收集的 Goroutine，该 Goroutine 的职责非常简单 — 调用 runtime.gcStart 尝试启动新一轮的垃圾收集，<br>为了减少对计算资源的占用，该 Goroutine 会在循环中调用 runtime.goparkunlock <strong>主动陷入休眠</strong>等待其他 Goroutine 的唤醒，runtime.forcegchelper 在大多数时间都是陷入休眠的，<br>但是它会被系统监控器 runtime.sysmon 在满足垃圾收集条件时唤醒</p>
-<p>系统监控在每个循环中都会主动构建一个 runtime.gcTrigger 并检查垃圾收集的触发条件是否满足，如果满足条件，系统监控会将 runtime.forcegc 状态中持有的 Goroutine 加入全局队列等待调度器的调度。</p>
-<h5 id="手动触发"><a href="#手动触发" class="headerlink" title="手动触发"></a>手动触发</h5><p>用户程序会通过 runtime.GC 函数在程序运行期间主动通知运行时执行，该方法在调用时会<strong>阻塞调用方直到当前垃圾收集循环完成</strong>，在垃圾收集期间也可能会通过 STW 暂停整个程序</p>
-<h5 id="申请内存"><a href="#申请内存" class="headerlink" title="申请内存"></a>申请内存</h5><p>运行时会将堆上的对象按大小分成微对象、小对象和大对象三类，这三类对象的创建都可能会触发新的垃圾收集循环</p>
-<ol>
-<li>当前线程的内存管理单元中不存在空闲空间时，创建微对象和小对象需要从中心缓存或者页堆中获取新的管理单元，这时就可能触发垃圾收集；</li>
-<li>当用户程序申请分配 32KB 以上的大对象时，一定会尝试触发垃圾收集；</li>
-</ol>
+<p>####写锁<br><strong>写锁获取锁</strong></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> Lock() &#123;</span><br><span class="line">	rw.w.Lock()</span><br><span class="line">	r := atomic.AddInt32(&amp;rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders</span><br><span class="line">	<span class="keyword">if</span> r != <span class="number">0</span> &amp;&amp; atomic.AddInt32(&amp;rw.readerWait, r) != <span class="number">0</span> &#123;</span><br><span class="line">		runtime_SemacquireMutex(&amp;rw.writerSem, <span class="literal">false</span>, <span class="number">0</span>)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当有Goroutine调用sync.RWMutex.Lock时，先调用sync.Mutex.Lock阻塞后续写操作，其他 Goroutine 在获取写锁时会进入自旋或者休眠；</p>
+<p>调用sync&#x2F;atomic.AddInt32,将 readerCount 变为负数，即 readerCount &#x3D; readerCount - rwmutexMaxReader，同时让readerWait 变量记录它前面有多少个 reader；<br>如果有新来的 reader，发现 readerCount 是负数，就会直接去后面排队；</p>
+<p>如果仍然有其他 Goroutine 持有互斥锁的读锁，该 Goroutine 会调用 runtime.sync_runtime_SemacquireMutex 进入休眠状态等待所有读锁所有者执行结束后释放 writerSem 信号量将当前协程唤醒；</p>
+<p><strong>写锁释放锁</strong></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> Unlock() &#123;</span><br><span class="line">	r := atomic.AddInt32(&amp;rw.readerCount, rwmutexMaxReaders)</span><br><span class="line">	<span class="keyword">if</span> r &gt;= rwmutexMaxReaders &#123;</span><br><span class="line">		throw(<span class="string">&quot;sync: Unlock of unlocked RWMutex&quot;</span>)</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; <span class="type">int</span>(r); i++ &#123;</span><br><span class="line">		runtime_Semrelease(&amp;rw.readerSem, <span class="literal">false</span>, <span class="number">0</span>)</span><br><span class="line">	&#125;</span><br><span class="line">	rw.w.Unlock()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>首先调用 sync&#x2F;atomic.AddInt32 函数将 readerCount 变回正数</p>
+<p>通过 for 循环释放所有因为获取读锁而陷入等待的 Goroutine：</p>
+<p>调用 sync.Mutex.Unlock 释放写锁；</p>
+<p>####读锁<br><strong>获取锁</strong></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> RLock() &#123;</span><br><span class="line">	<span class="keyword">if</span> atomic.AddInt32(&amp;rw.readerCount, <span class="number">1</span>) &lt; <span class="number">0</span> &#123;</span><br><span class="line">		runtime_SemacquireMutex(&amp;rw.readerSem, <span class="literal">false</span>, <span class="number">0</span>)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>如果该方法返回负数 — 其他 Goroutine 获得了写锁，当前 Goroutine 就会调用 runtime.sync_runtime_SemacquireMutex 陷入休眠等待锁的释放；</p>
+<p>如果该方法的结果为非负数 — 没有 Goroutine 获得写锁，当前方法会成功返回；</p>
+<p><strong>释放锁</strong></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rw *RWMutex)</span></span> RUnlock() &#123;</span><br><span class="line">	<span class="keyword">if</span> r := atomic.AddInt32(&amp;rw.readerCount, <span class="number">-1</span>); r &lt; <span class="number">0</span> &#123;</span><br><span class="line">		rw.rUnlockSlow(r)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>该方法会先减少正在读资源的 readerCount 整数，根据 sync&#x2F;atomic.AddInt32 的返回值不同会分别进行处理：</p>
+<p>如果返回值大于等于零，读锁直接解锁成功；</p>
+<p>如果返回值小于零表示有一个正在执行的写操作，此时RWMutex会减少获取锁的写操作等待的读操作数 readerWait 并在所有读操作都被释放之后触发写操作的信号量 writerSem，<br>该信号量被触发时，调度器就会唤醒尝试获取写锁的 Goroutine。</p>
 
                 
             </div>
@@ -517,7 +471,7 @@
                     </i>
                 </span>
                 <span class="reprint-info">
-                    <a href="http://chiron.chiu-chiu.cn/2022/08/16/go%E8%AF%AD%E8%A8%80GC%E8%A7%A3%E6%9E%90/">http://chiron.chiu-chiu.cn/2022/08/16/go%E8%AF%AD%E8%A8%80GC%E8%A7%A3%E6%9E%90/</a>
+                    <a href="http://chiron.chiu-chiu.cn/2022/11/09/go%E7%9A%84%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD%E4%B8%8E%E9%94%81/">http://chiron.chiu-chiu.cn/2022/11/09/go%E7%9A%84%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD%E4%B8%8E%E9%94%81/</a>
                 </span>
             </div>
             <div class="reprint__notice">
@@ -602,9 +556,10 @@
 <article id="prenext-posts" class="prev-next articles">
     <div class="row article-row">
         
-        <div class="article col s12 m6" data-aos="fade-up">
+        <div class="article col s12 m6" data-aos="fade-up" data-aos="fade-up">
             <div class="article-badge left-badge text-color">
-                <i class="fas fa-chevron-left"></i>&nbsp;上一篇</div>
+                <i class="far fa-dot-circle"></i>&nbsp;本篇
+            </div>
             <div class="card">
                 <a href="/2022/11/09/go%E7%9A%84%E5%90%8C%E6%AD%A5%E5%8E%9F%E8%AF%AD%E4%B8%8E%E9%94%81/">
                     <div class="card-image">
@@ -622,9 +577,9 @@
                         
                     </div>
                     <div class="publish-info">
-                        <span class="publish-date">
-                            <i class="far fa-clock fa-fw icon-date"></i>2022-11-09
-                        </span>
+                            <span class="publish-date">
+                                <i class="far fa-clock fa-fw icon-date"></i>2022-11-09
+                            </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
@@ -637,6 +592,7 @@
                         </span>
                     </div>
                 </div>
+
                 
                 <div class="card-action article-tags">
                     
@@ -655,31 +611,31 @@
                 下一篇&nbsp;<i class="fas fa-chevron-right"></i>
             </div>
             <div class="card">
-                <a href="/2022/08/09/%E6%90%AD%E5%BB%BAgoproxy/">
+                <a href="/2022/08/16/go%E8%AF%AD%E8%A8%80GC%E8%A7%A3%E6%9E%90/">
                     <div class="card-image">
                         
                         
-                        <img src="/medias/featureimages/15.jpg" class="responsive-img" alt="搭建goproxy">
+                        <img src="/medias/featureimages/20.jpg" class="responsive-img" alt="go语言GC解析">
                         
-                        <span class="card-title">搭建goproxy</span>
+                        <span class="card-title">go语言GC解析</span>
                     </div>
                 </a>
                 <div class="card-content article-content">
                     <div class="summary block-with-text">
                         
-                            记录搭建goproxy过程
+                            含泪学习go垃圾收集机制
                         
                     </div>
                     <div class="publish-info">
                             <span class="publish-date">
-                                <i class="far fa-clock fa-fw icon-date"></i>2022-08-09
+                                <i class="far fa-clock fa-fw icon-date"></i>2022-08-16
                             </span>
                         <span class="publish-author">
                             
                             <i class="fas fa-bookmark fa-fw icon-category"></i>
                             
-                            <a href="/categories/%E8%AE%B0%E5%BD%95/" class="post-category">
-                                    记录
+                            <a href="/categories/%E6%8A%80%E6%9C%AF%E6%96%87%E7%AB%A0/" class="post-category">
+                                    技术文章
                                 </a>
                             
                             
